@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.1.1] - 2026-06-29
+
+### Security
+- Fix HTML injection in docs generation (desktop and CLI)
+- Bind mock server to loopback-only by default; disable permissive CORS unless explicit
+- Add Boa runtime limits for sandboxed pre-request and test scripts
+- Harden docs file writes against path traversal and symlink attacks
+- Add CLI request timeouts to prevent hanging
+- Add XML escaping in CLI docs output
+- Add shell-safe cURL export (proper quoting)
+- Add HTML escaping in generated API docs
+
+### Fixed
+- Wire test runner environments, pre-request scripts, and test scripts end-to-end
+- Correct stale docs that claimed OpenAPI/cURL import/export and `api900.expect` were implemented
+
+### Documentation
+- Add AUDIT_REMEDIATION_REPORT.md
+- Update README, SECURITY, API, ARCHITECTURE, THREAT_MODEL, PRIVACY_MODEL docs
+- Update ADR-003 and sprint records 5, 11, 13, 14, 18
+
 ## [0.1.0] - 2026-06-29
 
 ### Added

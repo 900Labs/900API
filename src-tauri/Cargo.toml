@@ -1,6 +1,6 @@
 [package]
 name = "api900"
-version = "0.1.0"
+version = "0.1.1"
 description = "API testing and documentation client — a Postman alternative that respects your privacy"
 authors = ["900 Labs"]
 license = "MIT"
