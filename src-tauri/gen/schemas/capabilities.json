@@ -1,0 +1,1 @@
+{"900api-capabilities":{"identifier":"900api-capabilities","description":"Capabilities for the 900API desktop app","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open","dialog:default"]}}

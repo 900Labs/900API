@@ -1,0 +1,17 @@
+[package]
+name = "api900-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "CLI runner for 900API collections — headless API testing for CI/CD"
+
+[[bin]]
+name = "900api"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+clap = { version = "4", features = ["derive"] }
