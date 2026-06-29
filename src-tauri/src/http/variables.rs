@@ -1,4 +1,4 @@
-use crate::models::{EnvironmentVariable, KeyValue};
+use crate::models::{AuthConfig, EnvironmentVariable, KeyValue};
 use std::collections::HashMap;
 
 /// Resolves `{{variable_name}}` patterns in a string using the provided environment variables.
@@ -31,7 +31,12 @@ pub fn resolve_with_map(input: &str, map: &HashMap<&str, &str>) -> String {
                 let var_name = result[open_abs + 2..close_abs].trim();
 
                 if let Some(value) = map.get(var_name) {
-                    result = format!("{}{}{}", &result[..open_abs], value, &result[close_abs + 2..]);
+                    result = format!(
+                        "{}{}{}",
+                        &result[..open_abs],
+                        value,
+                        &result[close_abs + 2..]
+                    );
                     changed = true;
                     start = open_abs + value.len();
                 } else {
@@ -57,6 +62,32 @@ pub fn resolve_key_values(items: &[KeyValue], variables: &[EnvironmentVariable])
             enabled: kv.enabled,
         })
         .collect()
+}
+
+/// Resolves variables in every string field of an authentication config.
+pub fn resolve_auth_config(auth: &AuthConfig, variables: &[EnvironmentVariable]) -> AuthConfig {
+    let mut resolved = auth.clone();
+    resolved.username = resolve_variables(&auth.username, variables);
+    resolved.password = resolve_variables(&auth.password, variables);
+    resolved.token = resolve_variables(&auth.token, variables);
+    resolved.api_key = resolve_variables(&auth.api_key, variables);
+    resolved.api_key_name = resolve_variables(&auth.api_key_name, variables);
+    resolved.api_key_in = resolve_variables(&auth.api_key_in, variables);
+    resolved.oauth2_access_token = resolve_variables(&auth.oauth2_access_token, variables);
+    resolved.oauth2_token_type = resolve_variables(&auth.oauth2_token_type, variables);
+    resolved.oauth2_refresh_token = resolve_variables(&auth.oauth2_refresh_token, variables);
+    resolved.oauth1_consumer_key = resolve_variables(&auth.oauth1_consumer_key, variables);
+    resolved.oauth1_consumer_secret = resolve_variables(&auth.oauth1_consumer_secret, variables);
+    resolved.oauth1_token = resolve_variables(&auth.oauth1_token, variables);
+    resolved.oauth1_token_secret = resolve_variables(&auth.oauth1_token_secret, variables);
+    resolved.aws_access_key_id = resolve_variables(&auth.aws_access_key_id, variables);
+    resolved.aws_secret_access_key = resolve_variables(&auth.aws_secret_access_key, variables);
+    resolved.aws_region = resolve_variables(&auth.aws_region, variables);
+    resolved.aws_service = resolve_variables(&auth.aws_service, variables);
+    resolved.hawk_id = resolve_variables(&auth.hawk_id, variables);
+    resolved.hawk_key = resolve_variables(&auth.hawk_key, variables);
+    resolved.hawk_algorithm = resolve_variables(&auth.hawk_algorithm, variables);
+    resolved
 }
 
 #[cfg(test)]
@@ -141,6 +172,22 @@ mod tests {
         }];
         let resolved = resolve_key_values(&items, &vars);
         assert_eq!(resolved[0].value, "Bearer abc123");
+    }
+
+    #[test]
+    fn test_variable_in_auth_token() {
+        let vars = vec![EnvironmentVariable {
+            key: "token".to_string(),
+            value: "abc123".to_string(),
+            enabled: true,
+        }];
+        let token_placeholder = format!("{{{{{}}}}}", "token");
+        let auth = AuthConfig {
+            token: token_placeholder,
+            ..AuthConfig::default()
+        };
+        let resolved = resolve_auth_config(&auth, &vars);
+        assert_eq!(resolved.token, "abc123");
     }
 
     #[test]

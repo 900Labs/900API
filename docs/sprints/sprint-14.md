@@ -35,6 +35,12 @@
 - `write_text_file` command added for file export (avoids needing plugin-fs)
 - Docs view replaces the previous "coming in Sprint 6" placeholder
 
+## Post-Audit Update
+- HTML docs now escape collection names, descriptions, endpoint names, URLs, headers, params, bodies, body types, and auth labels before rendering.
+- Unknown HTTP methods now use a safe fallback CSS class instead of arbitrary user-controlled class names.
+- `write_text_file` now validates the parent directory inside the user's home directory, rejects path traversal, and refuses symbolic-link targets.
+- Regression tests cover generated HTML escaping.
+
 ## Known Issues
 - No OpenAPI/Swagger format export
 - No live preview of HTML export in app

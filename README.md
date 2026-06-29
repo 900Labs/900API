@@ -39,13 +39,20 @@ A developer in Lagos testing APIs pays the same $14/month for Postman as a devel
 - Variables panel for GraphQL variables
 
 ### Test Scripts
-- Sandboxed JavaScript pre-request and test scripts
-- Assertion library: status code, headers, body (JSON path, text, regex), response time
-- Collection-level test runner with pass/fail summary
+- Sandboxed JavaScript pre-request and test scripts with runtime limits
+- Assertions for status code, headers, body text, body JSON path, and response time
+- Collection-level test runner with active environment variable resolution
+
+### Mock Server
+- Local mock routes with configurable method, path, status, headers, body, and delay
+- Binds to `127.0.0.1` by default
+- LAN exposure and permissive CORS are explicit opt-in settings
 
 ### Import / Export
-- Import from Postman Collection v2.1, cURL, OpenAPI 3.x / Swagger 2.0
-- Export to Postman Collection v2.1, cURL, OpenAPI 3.0
+- Import 900API native JSON and Postman Collection v2.1
+- Export 900API native JSON from the app
+- CLI export to Postman Collection v2.1 and cURL commands
+- OpenAPI and cURL import are planned formats, not current release features
 
 ### CLI Runner
 - `900api run <collection.json>` — headless collection execution for CI/CD
@@ -56,6 +63,7 @@ A developer in Lagos testing APIs pays the same $14/month for Postman as a devel
 ### API Documentation
 - Generate static HTML or Markdown API docs from collections
 - Include request examples, response examples, and descriptions
+- HTML output escapes collection and request content before rendering
 
 ## Tech Stack
 

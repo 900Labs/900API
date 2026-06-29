@@ -10,9 +10,9 @@
 User → Svelte 5 UI → Tauri IPC → Rust Backend
                                     ├── HTTP Engine (reqwest) → Target API
                                     ├── GraphQL Engine → Target GraphQL endpoint
-                                    ├── Script Sandbox (boa/deno_core) → Pre-request / Test scripts
+                                    ├── Script Sandbox (boa_engine) → Pre-request / Test scripts
                                     ├── SQLite DB → Collections, Environments, History
-                                    └── File I/O → Export/Import (JSON, cURL, OpenAPI)
+                                    └── File I/O → Export/Import (900API JSON, Postman; CLI cURL export)
 ```
 
 ### Layers
@@ -25,7 +25,7 @@ User → Svelte 5 UI → Tauri IPC → Rust Backend
 
 4. **SQLite Database**: Local file at `{APP_DATA_DIR}/900api.db`. Stores collections, requests, environments, history, and settings.
 
-5. **CLI Crate (`api900-cli`)**: Standalone binary that shares core logic for headless collection execution in CI/CD pipelines.
+5. **CLI Crate (`api900-cli`)**: Standalone binary for headless collection execution and format export in CI/CD pipelines.
 
 ## Data Model
 
@@ -83,9 +83,9 @@ settings (key, value)
 │       ├── db/                   # SQLite schema, migrations, queries
 │       ├── http/                 # HTTP engine (reqwest wrapper)
 │       ├── graphql/              # GraphQL query validation, introspection
-│       ├── script/               # JS sandbox for scripts
-│       ├── import/               # Postman, cURL, OpenAPI importers
-│       ├── export/               # Collection, cURL, OpenAPI exporters
+│       ├── scripting/            # JS sandbox for scripts
+│       ├── import/               # 900API JSON and Postman importers
+│       ├── export/               # 900API JSON exporter
 │       └── docs/                 # API documentation generator
 ├── crates/
 │   └── 900api-cli/               # Standalone CLI binary for CI/CD

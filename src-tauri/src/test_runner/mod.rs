@@ -95,7 +95,7 @@ pub struct TestRunResult {
 }
 
 impl TestRequest {
-    fn to_request_config(&self) -> RequestConfig {
+    fn to_request_config(&self, env_vars: &[crate::models::EnvironmentVariable]) -> RequestConfig {
         let method = match self.method.to_uppercase().as_str() {
             "GET" => HttpMethod::GET,
             "POST" => HttpMethod::POST,
@@ -118,21 +118,50 @@ impl TestRequest {
 
         RequestConfig {
             method,
-            url: self.url.clone(),
-            headers: self.headers.clone(),
-            params: self.params.clone(),
+            url: crate::http::variables::resolve_variables(&self.url, env_vars),
+            headers: crate::http::variables::resolve_key_values(&self.headers, env_vars),
+            params: crate::http::variables::resolve_key_values(&self.params, env_vars),
             body_type,
-            body: self.body.clone(),
-            auth: self.auth.clone(),
+            body: crate::http::variables::resolve_variables(&self.body, env_vars),
+            auth: crate::http::variables::resolve_auth_config(&self.auth, env_vars),
         }
     }
 }
 
 pub async fn run_test_suite(
     suite: &TestSuite,
-    _env_vars: &[crate::models::EnvironmentVariable],
+    env_vars: &[crate::models::EnvironmentVariable],
 ) -> TestSuiteResult {
-    let config = suite.request.to_request_config();
+    if !suite.pre_request_script.trim().is_empty() {
+        match crate::scripting::run_test_script(&suite.pre_request_script, "", 0, "{}") {
+            Ok(output) => {
+                if let Some(error) = output.error {
+                    return TestSuiteResult {
+                        suite_id: suite.id.clone(),
+                        suite_name: suite.name.clone(),
+                        passed: false,
+                        assertions: vec![],
+                        response_status: 0,
+                        response_time_ms: 0,
+                        error: Some(format!("Pre-request script failed: {}", error)),
+                    };
+                }
+            }
+            Err(e) => {
+                return TestSuiteResult {
+                    suite_id: suite.id.clone(),
+                    suite_name: suite.name.clone(),
+                    passed: false,
+                    assertions: vec![],
+                    response_status: 0,
+                    response_time_ms: 0,
+                    error: Some(format!("Pre-request script failed: {}", e)),
+                };
+            }
+        }
+    }
+
+    let config = suite.request.to_request_config(env_vars);
 
     let response = match http::send_request(&config).await {
         Ok(r) => r,
@@ -158,7 +187,23 @@ pub async fn run_test_suite(
         assertion_results.push(result);
     }
 
-    let all_passed = assertion_results.iter().all(|r| r.passed);
+    let script_error = if suite.test_script.trim().is_empty() {
+        None
+    } else {
+        let response_headers =
+            serde_json::to_string(&response.headers).unwrap_or_else(|_| "{}".to_string());
+        match crate::scripting::run_test_script(
+            &suite.test_script,
+            &response.body,
+            response.status,
+            &response_headers,
+        ) {
+            Ok(output) => output.error.map(|e| format!("Test script failed: {}", e)),
+            Err(e) => Some(format!("Test script failed: {}", e)),
+        }
+    };
+
+    let all_passed = assertion_results.iter().all(|r| r.passed) && script_error.is_none();
 
     TestSuiteResult {
         suite_id: suite.id.clone(),
@@ -167,7 +212,7 @@ pub async fn run_test_suite(
         assertions: assertion_results,
         response_status: status,
         response_time_ms: time_ms,
-        error: None,
+        error: script_error,
     }
 }
 
@@ -197,17 +242,25 @@ pub async fn run_test_suites(
     }
 }
 
-fn evaluate_assertion(
-    assertion: &Assertion,
-    response: &ResponseData,
-) -> AssertionResult {
+fn evaluate_assertion(assertion: &Assertion, response: &ResponseData) -> AssertionResult {
     let actual = get_assertion_value(assertion, response);
     let passed = check_assertion(assertion, &actual);
 
     let message = if passed {
-        format!("Expected {} {} {}", assertion.target, format_operator(&assertion.operator), assertion.expected)
+        format!(
+            "Expected {} {} {}",
+            assertion.target,
+            format_operator(&assertion.operator),
+            assertion.expected
+        )
     } else {
-        format!("Expected {} {} '{}' but got '{}'", assertion.target, format_operator(&assertion.operator), assertion.expected, actual)
+        format!(
+            "Expected {} {} '{}' but got '{}'",
+            assertion.target,
+            format_operator(&assertion.operator),
+            assertion.expected,
+            actual
+        )
     };
 
     AssertionResult {
@@ -221,13 +274,16 @@ fn evaluate_assertion(
 fn get_assertion_value(assertion: &Assertion, response: &ResponseData) -> String {
     match assertion.assertion_type {
         AssertionType::Status => response.status.to_string(),
-        AssertionType::Header => {
-            response.headers.get(&assertion.target).cloned().unwrap_or_default()
-        }
+        AssertionType::Header => response
+            .headers
+            .get(&assertion.target)
+            .cloned()
+            .unwrap_or_default(),
         AssertionType::Body => response.body.clone(),
         AssertionType::BodyContains => response.body.clone(),
         AssertionType::BodyJsonPath => {
-            let body: serde_json::Value = serde_json::from_str(&response.body).unwrap_or(serde_json::Value::Null);
+            let body: serde_json::Value =
+                serde_json::from_str(&response.body).unwrap_or(serde_json::Value::Null);
             extract_json_path(&body, &assertion.target)
         }
         AssertionType::ResponseTime => response.time_ms.to_string(),
@@ -302,6 +358,7 @@ fn format_operator(operator: &AssertionOperator) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{AuthConfig, AuthType, EnvironmentVariable};
 
     #[test]
     fn test_extract_json_path_simple() {
@@ -384,5 +441,59 @@ mod tests {
         };
         assert!(check_assertion(&assertion, "some-value"));
         assert!(!check_assertion(&assertion, ""));
+    }
+
+    #[test]
+    fn test_request_config_resolves_environment_variables() {
+        let request = TestRequest {
+            method: "POST".to_string(),
+            url: "{{baseUrl}}/users".to_string(),
+            headers: vec![KeyValue {
+                key: "Authorization".to_string(),
+                value: "Bearer {{token}}".to_string(),
+                enabled: true,
+            }],
+            params: vec![KeyValue {
+                key: "q".to_string(),
+                value: "{{query}}".to_string(),
+                enabled: true,
+            }],
+            body_type: "json".to_string(),
+            body: "{\"name\":\"{{name}}\"}".to_string(),
+            auth: AuthConfig {
+                auth_type: AuthType::Bearer,
+                token: "{{token}}".to_string(),
+                ..AuthConfig::default()
+            },
+        };
+        let vars = vec![
+            EnvironmentVariable {
+                key: "baseUrl".to_string(),
+                value: "https://api.example.com".to_string(),
+                enabled: true,
+            },
+            EnvironmentVariable {
+                key: "token".to_string(),
+                value: "secret".to_string(),
+                enabled: true,
+            },
+            EnvironmentVariable {
+                key: "query".to_string(),
+                value: "active".to_string(),
+                enabled: true,
+            },
+            EnvironmentVariable {
+                key: "name".to_string(),
+                value: "Samir".to_string(),
+                enabled: true,
+            },
+        ];
+
+        let config = request.to_request_config(&vars);
+        assert_eq!(config.url, "https://api.example.com/users");
+        assert_eq!(config.headers[0].value, "Bearer secret");
+        assert_eq!(config.params[0].value, "active");
+        assert_eq!(config.body, "{\"name\":\"Samir\"}");
+        assert_eq!(config.auth.token, "secret");
     }
 }

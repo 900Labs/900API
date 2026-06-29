@@ -25,6 +25,9 @@ Before changing repository visibility or publishing a release, verify:
 ## Code Quality
 - [ ] `./scripts/verify-local.sh` passes
 - [ ] `./scripts/verify-public-release.sh` passes
+- [ ] `npm audit --audit-level=high` reports zero high or critical vulnerabilities
+- [ ] `cargo audit` has no blocking vulnerabilities beyond documented allowed transitive warnings
+- [ ] `npm run tauri:build` produces the app bundle and installer artifact
 - [ ] No compiler warnings (Rust)
 - [ ] No TypeScript errors or warnings
 - [ ] No `unwrap()` or `expect()` in production Rust code

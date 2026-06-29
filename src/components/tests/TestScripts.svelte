@@ -14,7 +14,7 @@
     error: string | null
   }
 
-  let script = $state('// Access response via api900.response\n// Example:\n// var status = api900.response.status;\n// if (status === 200) {\n//   api900.expect.pass("Status is 200");\n// } else {\n//   api900.expect.fail("Status is not 200");\n// }')
+  let script = $state('// Access response via api900.response\n// Example:\n// var status = api900.response.status;\n// if (status !== 200) {\n//   throw new Error("Expected 200, got " + status);\n// }')
   let output = $state<ScriptOutput | null>(null)
   let running = $state(false)
 

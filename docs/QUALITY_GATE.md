@@ -39,6 +39,22 @@ Run the full quality gate locally before opening a PR:
 ./scripts/verify-local.sh
 ```
 
+## Public Release Verification
+
+Run these before publishing binaries or making a release public:
+
+```bash
+./scripts/verify-public-release.sh
+npm audit --audit-level=high
+cargo audit
+npm run tauri:build
+```
+
+Current dependency-audit policy:
+- `npm audit --audit-level=high` must report zero high or critical vulnerabilities.
+- `cargo audit` must report no blocking vulnerabilities. Existing allowed warnings are transitive RustSec warnings from Tauri/Wry's Linux GTK stack, Boa's `paste` dependency, and Tauri URL pattern dependencies.
+- `npm run tauri:build` must produce the platform app bundle and installer artifact.
+
 ## Coding Standards
 
 - **Rust**: No `unwrap()` or `expect()` in production code. Use `thiserror` for error types. All public functions need rustdoc.

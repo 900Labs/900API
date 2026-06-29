@@ -1,8 +1,12 @@
-use boa_engine::{js_string, Context, Source};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
+use boa_engine::{js_string, Context, Source};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+const SCRIPT_LOOP_ITERATION_LIMIT: u64 = 100_000;
+const SCRIPT_RECURSION_LIMIT: usize = 128;
+const SCRIPT_STACK_SIZE_LIMIT: usize = 4096;
 
 #[derive(Debug, Error)]
 pub enum ScriptError {
@@ -39,12 +43,28 @@ pub fn run_test_script(
     }
 
     let mut context = Context::default();
+    let limits = context.runtime_limits_mut();
+    limits.set_loop_iteration_limit(SCRIPT_LOOP_ITERATION_LIMIT);
+    limits.set_recursion_limit(SCRIPT_RECURSION_LIMIT);
+    limits.set_stack_size_limit(SCRIPT_STACK_SIZE_LIMIT);
 
     // Build the 900api.response object
     let response_obj = ObjectInitializer::new(&mut context)
-        .property(js_string!("status"), response_status as i32, Attribute::all())
-        .property(js_string!("body"), js_string!(response_body), Attribute::all())
-        .property(js_string!("headers"), js_string!(response_headers), Attribute::all())
+        .property(
+            js_string!("status"),
+            response_status as i32,
+            Attribute::all(),
+        )
+        .property(
+            js_string!("body"),
+            js_string!(response_body),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("headers"),
+            js_string!(response_headers),
+            Attribute::all(),
+        )
         .build();
 
     let api_obj = ObjectInitializer::new(&mut context)
@@ -107,5 +127,11 @@ mod tests {
         let script = "var b = api900.response.body;";
         let output = run_test_script(script, "{\"ok\":true}", 200, "{}").unwrap();
         assert!(output.error.is_none());
+    }
+
+    #[test]
+    fn test_infinite_loop_hits_runtime_limit() {
+        let output = run_test_script("while (true) {}", "{}", 200, "{}").unwrap();
+        assert!(output.error.is_some());
     }
 }

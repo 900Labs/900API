@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "900api")]
@@ -183,7 +184,20 @@ async fn run_collection(
         Vec::new()
     };
 
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(20)
+        .tcp_nodelay(true)
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("Error building HTTP client: {}", e);
+            return ExitCode::from(2);
+        }
+    };
     let mut results = Vec::new();
     let mut all_passed = true;
 
@@ -198,22 +212,36 @@ async fn run_collection(
 
     match reporter.as_str() {
         "json" => {
-            let json = serde_json::to_string_pretty(&results.iter().map(|r| {
-                serde_json::json!({
-                    "name": r.name,
-                    "passed": r.passed,
-                    "status": r.status,
-                    "time_ms": r.time_ms,
-                    "error": r.error,
-                })
-            }).collect::<Vec<_>>()).unwrap_or_default();
+            let json = serde_json::to_string_pretty(
+                &results
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "name": r.name,
+                            "passed": r.passed,
+                            "status": r.status,
+                            "time_ms": r.time_ms,
+                            "error": r.error,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_default();
             println!("{}", json);
         }
         "junit" => {
             println!(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-            println!(r#"<testsuite name="{}" tests="{}">"#, collection.name, results.len());
+            println!(
+                r#"<testsuite name="{}" tests="{}">"#,
+                xml_escape(&collection.name),
+                results.len()
+            );
             for r in &results {
-                println!(r#"  <testcase name="{}" time="{}">"#, r.name, r.time_ms as f64 / 1000.0);
+                println!(
+                    r#"  <testcase name="{}" time="{}">"#,
+                    xml_escape(&r.name),
+                    r.time_ms as f64 / 1000.0
+                );
                 if !r.passed {
                     if let Some(ref err) = r.error {
                         println!(r#"    <failure>{}</failure>"#, xml_escape(err));
@@ -369,14 +397,17 @@ fn export_collection(
         "curl" => {
             let mut curls = Vec::new();
             for r in &collection.requests {
-                let mut cmd = format!("curl -X {} '{}'", r.method, r.url);
+                let mut cmd = format!("curl -X {} {}", r.method, shell_quote(&r.url));
                 for h in &r.headers {
                     if h.enabled {
-                        cmd.push_str(&format!(" -H '{}: {}'", h.key, h.value));
+                        cmd.push_str(&format!(
+                            " -H {}",
+                            shell_quote(&format!("{}: {}", h.key, h.value))
+                        ));
                     }
                 }
                 if let Some(ref body) = r.body {
-                    cmd.push_str(&format!(" -d '{}'", body));
+                    cmd.push_str(&format!(" -d {}", shell_quote(body)));
                 }
                 curls.push(format!("# {}", r.name));
                 curls.push(cmd);
@@ -412,6 +443,38 @@ fn xml_escape(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn html_escape(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn method_class(method: &str) -> &'static str {
+    match method.to_uppercase().as_str() {
+        "GET" => "GET",
+        "POST" => "POST",
+        "PUT" => "PUT",
+        "PATCH" => "PATCH",
+        "DELETE" => "DELETE",
+        "HEAD" => "HEAD",
+        "OPTIONS" => "OPTIONS",
+        _ => "OTHER",
+    }
+}
+
 fn resolve_variables(input: &str, vars: &[EnvironmentVariableFile]) -> String {
     let mut result = input.to_string();
     for var in vars.iter().filter(|v| v.enabled) {
@@ -421,11 +484,7 @@ fn resolve_variables(input: &str, vars: &[EnvironmentVariableFile]) -> String {
     result
 }
 
-fn generate_docs(
-    collection_path: PathBuf,
-    format: String,
-    output: Option<PathBuf>,
-) -> ExitCode {
+fn generate_docs(collection_path: PathBuf, format: String, output: Option<PathBuf>) -> ExitCode {
     let collection_str = match std::fs::read_to_string(&collection_path) {
         Ok(s) => s,
         Err(e) => {
@@ -512,11 +571,16 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
 
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
-    html.push_str(&format!("<title>{} — API Documentation</title>\n", collection.name));
+    html.push_str(&format!(
+        "<title>{} — API Documentation</title>\n",
+        html_escape(&collection.name)
+    ));
     html.push_str("<style>\n");
     html.push_str("body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 0 auto; padding: 2rem; color: #333; }\n");
     html.push_str("h1 { color: #1a1a2e; }\n");
-    html.push_str("h2 { color: #16213e; border-bottom: 2px solid #e94560; padding-bottom: 0.5rem; }\n");
+    html.push_str(
+        "h2 { color: #16213e; border-bottom: 2px solid #e94560; padding-bottom: 0.5rem; }\n",
+    );
     html.push_str("h3 { color: #0f3460; }\n");
     html.push_str("code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; font-family: 'SF Mono', monospace; }\n");
     html.push_str("pre { background: #1a1a2e; color: #e0e0e0; padding: 1rem; border-radius: 8px; overflow-x: auto; }\n");
@@ -528,31 +592,42 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
     html.push_str(".GET { background: #d4edda; color: #155724; }\n");
     html.push_str(".POST { background: #fff3cd; color: #856404; }\n");
     html.push_str(".PUT { background: #cce5ff; color: #004085; }\n");
+    html.push_str(".PATCH { background: #d1ecf1; color: #0c5460; }\n");
     html.push_str(".DELETE { background: #f8d7da; color: #721c24; }\n");
+    html.push_str(".HEAD { background: #e2d9f3; color: #3d1766; }\n");
+    html.push_str(".OPTIONS { background: #d6e4ff; color: #003a8c; }\n");
+    html.push_str(".OTHER { background: #e5e7eb; color: #374151; }\n");
     html.push_str("</style>\n</head>\n<body>\n");
 
-    html.push_str(&format!("<h1>{}</h1>\n", collection.name));
+    html.push_str(&format!("<h1>{}</h1>\n", html_escape(&collection.name)));
 
     if let Some(ref desc) = collection.description {
-        html.push_str(&format!("<p>{}</p>\n", desc));
+        html.push_str(&format!("<p>{}</p>\n", html_escape(desc)));
     }
 
     html.push_str("<h2>Endpoints</h2>\n");
 
     for req in &collection.requests {
-        let method_class = req.method.to_uppercase();
+        let method_class = method_class(&req.method);
         html.push_str(&format!(
             "<h3><span class=\"method {}\">{}</span> {}</h3>\n",
-            method_class, method_class, req.name
+            method_class,
+            html_escape(&req.method),
+            html_escape(&req.name)
         ));
-        html.push_str(&format!("<p><strong>URL:</strong> <code>{}</code></p>\n", req.url));
+        html.push_str(&format!(
+            "<p><strong>URL:</strong> <code>{}</code></p>\n",
+            html_escape(&req.url)
+        ));
 
         if !req.headers.is_empty() {
             html.push_str("<p><strong>Headers:</strong></p>\n<table>\n<tr><th>Key</th><th>Value</th><th>Enabled</th></tr>\n");
             for h in &req.headers {
                 html.push_str(&format!(
                     "<tr><td><code>{}</code></td><td><code>{}</code></td><td>{}</td></tr>\n",
-                    h.key, h.value, h.enabled
+                    html_escape(&h.key),
+                    html_escape(&h.value),
+                    h.enabled
                 ));
             }
             html.push_str("</table>\n");
@@ -560,7 +635,7 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
 
         if let Some(ref body) = req.body {
             html.push_str("<p><strong>Body:</strong></p>\n<pre><code>");
-            html.push_str(body);
+            html.push_str(&html_escape(body));
             html.push_str("</code></pre>\n");
         }
 
@@ -570,4 +645,53 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
     html.push_str("</body>\n</html>\n");
 
     html
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_html_escape_escapes_markup() {
+        assert_eq!(
+            html_escape("<script>alert(\"x\")</script>"),
+            "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn test_shell_quote_handles_single_quotes() {
+        assert_eq!(
+            shell_quote("https://example.com/a'b"),
+            "'https://example.com/a'\\''b'"
+        );
+    }
+
+    #[test]
+    fn test_generate_html_docs_escapes_user_content() {
+        let collection = CollectionFile {
+            name: "<script>alert(1)</script>".to_string(),
+            description: Some("\"><img src=x onerror=alert(1)>".to_string()),
+            requests: vec![RequestItem {
+                name: "<b>Create</b>".to_string(),
+                method: "TRACE\"><script>".to_string(),
+                url: "https://example.com/<script>".to_string(),
+                headers: vec![KeyValueFile {
+                    key: "X-Test".to_string(),
+                    value: "<svg onload=alert(1)>".to_string(),
+                    enabled: true,
+                }],
+                body: Some("{\"x\":\"</script>\"}".to_string()),
+                test_script: None,
+            }],
+        };
+
+        let html = generate_html_docs(&collection);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("<svg onload=alert(1)>"));
+        assert!(!html.contains("TRACE\"><script>"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(html.contains("class=\"method OTHER\""));
+        assert!(html.contains("&lt;svg onload=alert(1)&gt;"));
+    }
 }

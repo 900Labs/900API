@@ -23,7 +23,10 @@ We will acknowledge receipt within 48 hours and provide a timeline for a fix wit
 - **Offline-first**: No cloud connections. The only network calls are API requests you explicitly make.
 - **No telemetry**: Zero analytics, tracking, or remote logging.
 - **Local storage**: All data in a local SQLite file. No remote data storage.
-- **Sandboxed scripting**: Pre-request and test scripts run in a sandboxed JS engine with no filesystem or network access.
+- **Sandboxed scripting**: Pre-request and test scripts run in a sandboxed JS engine with no filesystem, network, DOM, `require`, `import`, or `process` access. Loop, recursion, and stack limits are configured before execution.
+- **Local mock server defaults**: Mock servers bind to `127.0.0.1` by default. LAN exposure and permissive CORS are explicit opt-in settings.
+- **Safe generated docs**: HTML documentation exports escape collection, request, header, parameter, body, and auth content before rendering.
+- **Constrained docs writes**: The docs export write command requires an existing parent directory inside the user's home directory and refuses symbolic-link targets.
 - **TLS by default**: All HTTPS requests use Rust's native TLS with certificate validation.
 
 ## Threat Model

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core'
   import { Play, Plus, Trash2, CheckCircle, XCircle, LoaderCircle, FlaskConical } from '@lucide/svelte'
+  import { activeEnvironmentStore } from '../../lib/stores'
 
   type KeyValue = { key: string; value: string; enabled: boolean }
 
@@ -96,6 +97,7 @@
   let running = $state(false)
   let runResult = $state<TestRunResult | null>(null)
   let error = $state<string | null>(null)
+  let activeEnvVars = $state<KeyValue[]>([])
 
   $effect(() => {
     if (selectedSuiteId === null && suites.length > 0) {
@@ -175,7 +177,10 @@
     error = null
     runResult = null
     try {
-      runResult = await invoke<TestRunResult>('run_test_suites', { suites })
+      runResult = await invoke<TestRunResult>('run_test_suites', {
+        suites,
+        environmentVariables: activeEnvVars.length > 0 ? activeEnvVars : undefined,
+      })
     } catch (e) {
       error = String(e)
     } finally {
@@ -187,6 +192,16 @@
     if (!runResult) return null
     return runResult.results.find((r) => r.suite_id === suiteId) ?? null
   }
+
+  const unsubEnv = activeEnvironmentStore.subscribe((env) => {
+    activeEnvVars = env?.variables || []
+  })
+
+  $effect(() => {
+    return () => {
+      unsubEnv()
+    }
+  })
 </script>
 
 <div class="flex h-full flex-col">

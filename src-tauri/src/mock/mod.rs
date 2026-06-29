@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::RwLock;
 use thiserror::Error;
@@ -36,6 +37,10 @@ pub struct MockRoute {
 pub struct MockServerConfig {
     pub port: u16,
     pub routes: Vec<MockRoute>,
+    #[serde(default)]
+    pub bind_host: Option<String>,
+    #[serde(default)]
+    pub cors_permissive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,11 +48,13 @@ pub struct MockServerState {
     pub port: u16,
     pub running: bool,
     pub request_count: u64,
+    pub bind_host: String,
+    pub cors_permissive: bool,
 }
 
 pub struct MockServer {
     pub config: MockServerConfig,
-    pub request_count: u64,
+    pub request_count: Arc<RwLock<u64>>,
     pub shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -68,6 +75,8 @@ pub async fn start_mock_server(
     config: MockServerConfig,
 ) -> Result<(), MockError> {
     let port = config.port;
+    let bind_ip = normalize_bind_host(config.bind_host.as_deref())?;
+    let bind_host = bind_ip.to_string();
 
     // Check if already running
     {
@@ -88,15 +97,17 @@ pub async fn start_mock_server(
     };
 
     // Build router with catch-all route
-    let app = Router::new()
-        .fallback(move |req: Request| {
-            let state = state.clone();
-            async move { handle_request_inner(state, req).await }
-        })
-        .layer(tower_http::cors::CorsLayer::permissive());
+    let mut app = Router::new().fallback(move |req: Request| {
+        let state = state.clone();
+        async move { handle_request_inner(state, req).await }
+    });
 
-    let addr = format!("0.0.0.0:{}", port);
-    let listener = tokio::net::TcpListener::bind(&addr)
+    if config.cors_permissive {
+        app = app.layer(tower_http::cors::CorsLayer::permissive());
+    }
+
+    let addr = SocketAddr::new(bind_ip, port);
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| MockError::Server(e.to_string()))?;
 
@@ -106,8 +117,11 @@ pub async fn start_mock_server(
         servers.insert(
             port,
             MockServer {
-                config: config.clone(),
-                request_count: 0,
+                config: MockServerConfig {
+                    bind_host: Some(bind_host),
+                    ..config.clone()
+                },
+                request_count: request_count.clone(),
                 shutdown: Some(shutdown_tx),
             },
         );
@@ -141,15 +155,29 @@ pub fn stop_mock_server(manager: &MockManager, port: u16) -> Result<(), MockErro
     Ok(())
 }
 
-pub fn get_mock_server_state(manager: &MockManager, port: u16) -> Result<MockServerState, MockError> {
+pub fn get_mock_server_state(
+    manager: &MockManager,
+    port: u16,
+) -> Result<MockServerState, MockError> {
     let servers = manager.read().unwrap_or_else(|e| e.into_inner());
-    let server = servers
-        .get(&port)
-        .ok_or(MockError::NotRunning(port))?;
+    let server = servers.get(&port).ok_or(MockError::NotRunning(port))?;
+    let request_count = *server
+        .request_count
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    let bind_host = server
+        .config
+        .bind_host
+        .clone()
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let cors_permissive = server.config.cors_permissive;
+
     Ok(MockServerState {
         port,
         running: true,
-        request_count: server.request_count,
+        request_count,
+        bind_host,
+        cors_permissive,
     })
 }
 
@@ -158,13 +186,13 @@ pub fn list_mock_servers(manager: &MockManager) -> Vec<u16> {
     servers.keys().cloned().collect()
 }
 
-async fn handle_request_inner(
-    state: AppState,
-    request: Request,
-) -> Response {
+async fn handle_request_inner(state: AppState, request: Request) -> Response {
     // Increment request count
     {
-        let mut count = state.request_count.write().unwrap_or_else(|e| e.into_inner());
+        let mut count = state
+            .request_count
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         *count += 1;
     }
 
@@ -173,24 +201,27 @@ async fn handle_request_inner(
 
     let route = {
         let routes = state.routes.read().unwrap_or_else(|e| e.into_inner());
-        routes.iter().find(|route| {
-            let route_method = match route.method.to_uppercase().as_str() {
-                "GET" => Some(Method::GET),
-                "POST" => Some(Method::POST),
-                "PUT" => Some(Method::PUT),
-                "PATCH" => Some(Method::PATCH),
-                "DELETE" => Some(Method::DELETE),
-                "HEAD" => Some(Method::HEAD),
-                "OPTIONS" => Some(Method::OPTIONS),
-                "*" | "ANY" => None,
-                _ => None,
-            };
+        routes
+            .iter()
+            .find(|route| {
+                let route_method = match route.method.to_uppercase().as_str() {
+                    "GET" => Some(Method::GET),
+                    "POST" => Some(Method::POST),
+                    "PUT" => Some(Method::PUT),
+                    "PATCH" => Some(Method::PATCH),
+                    "DELETE" => Some(Method::DELETE),
+                    "HEAD" => Some(Method::HEAD),
+                    "OPTIONS" => Some(Method::OPTIONS),
+                    "*" | "ANY" => None,
+                    _ => None,
+                };
 
-            let method_matches = route_method.is_none() || route_method == Some(method.clone());
-            let path_matches = match_path(&route.path, &path);
+                let method_matches = route_method.is_none() || route_method == Some(method.clone());
+                let path_matches = match_path(&route.path, &path);
 
-            method_matches && path_matches
-        }).cloned()
+                method_matches && path_matches
+            })
+            .cloned()
     };
 
     let route = match route {
@@ -200,10 +231,14 @@ async fn handle_request_inner(
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(format!(
                     "{{\"error\":\"No mock route found for {} {}\"}}",
-                    method,
-                    path
+                    method, path
                 )))
-                .unwrap_or_else(|_| Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::empty()).unwrap());
+                .unwrap_or_else(|_| {
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::empty())
+                        .unwrap()
+                });
         }
     };
 
@@ -227,12 +262,20 @@ async fn handle_request_inner(
     }
 
     // Ensure Content-Type if not set
-    let has_ct = route.headers.iter().any(|h| h.enabled && h.key.eq_ignore_ascii_case("content-type"));
+    let has_ct = route
+        .headers
+        .iter()
+        .any(|h| h.enabled && h.key.eq_ignore_ascii_case("content-type"));
     if !has_ct {
         response = response.header("Content-Type", "application/json");
     }
 
-    response.body(Body::from(route.body)).unwrap_or_else(|_| Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::empty()).unwrap())
+    response.body(Body::from(route.body)).unwrap_or_else(|_| {
+        Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap()
+    })
 }
 
 fn match_path(pattern: &str, actual: &str) -> bool {
@@ -255,6 +298,22 @@ fn match_path(pattern: &str, actual: &str) -> bool {
         .iter()
         .zip(actual_parts.iter())
         .all(|(p, a)| p.starts_with(':') || p == a || *p == "*")
+}
+
+fn normalize_bind_host(host: Option<&str>) -> Result<IpAddr, MockError> {
+    let host = host.unwrap_or("127.0.0.1").trim();
+    let host = if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1"
+    } else {
+        host
+    };
+
+    host.parse::<IpAddr>().map_err(|_| {
+        MockError::Server(format!(
+            "Invalid bind host '{}'. Use an IP address, localhost, or 0.0.0.0 for LAN access",
+            host
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -287,5 +346,28 @@ mod tests {
     #[test]
     fn test_match_path_double_wildcard() {
         assert!(match_path("/api/users/:id", "/api/users/abc-123"));
+    }
+
+    #[test]
+    fn test_default_bind_host_is_loopback() {
+        let ip = normalize_bind_host(None).unwrap();
+        assert_eq!(ip.to_string(), "127.0.0.1");
+    }
+
+    #[test]
+    fn test_localhost_normalizes_to_loopback() {
+        let ip = normalize_bind_host(Some("localhost")).unwrap();
+        assert_eq!(ip.to_string(), "127.0.0.1");
+    }
+
+    #[test]
+    fn test_lan_bind_host_is_explicit() {
+        let ip = normalize_bind_host(Some("0.0.0.0")).unwrap();
+        assert_eq!(ip.to_string(), "0.0.0.0");
+    }
+
+    #[test]
+    fn test_invalid_bind_host_is_rejected() {
+        assert!(normalize_bind_host(Some("example.com")).is_err());
     }
 }

@@ -62,7 +62,8 @@ All 18 sprints completed. The 900API client now supports:
 - Advanced authentication (OAuth2, OAuth1, AWS SigV4, Hawk)
 - Collections & environments with SQLite persistence
 - Test scripts with Boa JS engine
-- Import/export (Postman, OpenAPI, JSON)
+- Import/export for 900API JSON and Postman, plus CLI cURL export
+- Planned formats remain cURL import and OpenAPI import/export
 - Mock server with axum
 - Git-native sync
 - Advanced test runner with assertions

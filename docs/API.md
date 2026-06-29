@@ -23,13 +23,16 @@ const response = await invoke<ResponseData>('send_request', {
     headers: [{ key: 'Authorization', value: 'Bearer token', enabled: true }],
     params: [{ key: 'page', value: '1', enabled: true }],
     body_type: 'none',
-    body: ''
-  }
+    body: '',
+    auth: { auth_type: 'none' }
+  },
+  environmentVariables: undefined
 })
 ```
 
 **Parameters:**
 - `config: RequestConfig` — the request configuration
+- `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution in URL, headers, params, body, and auth fields
 
 **Returns:** `ResponseData` with `status`, `status_text`, `headers`, `body`, `time_ms`, `size_bytes`
 
@@ -207,7 +210,7 @@ const collection = await invoke<Collection>('import_collection_file', { path: '/
 ```
 
 ### `run_test_script`
-Runs a JavaScript test script in a sandboxed JS engine (boa) with access to `api900.response`.
+Runs a JavaScript test script in a sandboxed JS engine (boa) with access to `api900.response`. Scripts run without filesystem, network, DOM, `require`, `import`, or `process` access, and are bounded by loop, recursion, and stack limits.
 
 ```typescript
 const output = await invoke<ScriptOutput>('run_test_script', {
@@ -336,12 +339,14 @@ const response = await invoke<GrpcResponse>('send_grpc', {
 Auth is applied automatically by the HTTP engine when sending requests. The `AuthConfig` struct includes fields for each auth type.
 
 ### `mock_start`
-Starts a local mock server with defined routes.
+Starts a local mock server with defined routes. By default, servers bind to `127.0.0.1` and do not enable permissive CORS. LAN binding and permissive CORS must be explicitly requested.
 
 ```typescript
 await invoke('mock_start', {
   config: {
     port: 3001,
+    bind_host: '127.0.0.1',
+    cors_permissive: false,
     routes: [{
       id: 'uuid',
       method: 'GET',
@@ -354,6 +359,12 @@ await invoke('mock_start', {
   }
 })
 ```
+
+**Parameters:**
+- `port: number` — local port to listen on
+- `bind_host?: string` — optional IP address; defaults to `127.0.0.1`, use `0.0.0.0` only when LAN access is intentional
+- `cors_permissive?: boolean` — defaults to `false`
+- `routes: MockRoute[]` — mock response routes
 
 ### `mock_stop`
 Stops a running mock server.
@@ -368,6 +379,8 @@ Returns the state of a mock server.
 ```typescript
 const state = await invoke<MockServerState>('mock_get_state', { port: 3001 })
 ```
+
+**Returns:** `MockServerState` with `port`, `running`, `request_count`, `bind_host`, and `cors_permissive`
 
 ### `mock_list_servers`
 Returns a list of running mock server ports.
@@ -436,7 +449,7 @@ Runs `git pull --rebase` in the sync directory.
 Runs `git push` in the sync directory.
 
 ### `run_test_suite`
-Runs a single test suite (sends request, evaluates assertions).
+Runs a single test suite. The runner resolves environment variables, runs the pre-request script, sends the request, evaluates assertions, then runs the test script.
 
 ```typescript
 const result = await invoke<TestSuiteResult>('run_test_suite', {
@@ -475,15 +488,17 @@ Converts an ApiDoc to Markdown string.
 ### `docs_to_html`
 Converts an ApiDoc to styled HTML string.
 
+Generated HTML escapes collection names, descriptions, endpoint names, URLs, headers, params, body content, and auth labels before rendering.
+
 ### `write_text_file`
-Writes text content to a file path. Restricted to the user's home directory.
+Writes text content to a file path. Restricted to an existing parent directory inside the user's home directory. The command rejects path traversal and refuses to write through symbolic links.
 
 ```typescript
 await invoke('write_text_file', { path: '/path/to/file.md', content: '...' })
 ```
 
 **Parameters:**
-- `path: string` — file path (must be within the user's home directory)
+- `path: string` — file path; parent directory must exist inside the user's home directory
 - `content: string` — text content to write
 
 **Returns:** `void`
@@ -797,6 +812,8 @@ interface MockRoute {
 
 interface MockServerConfig {
   port: number
+  bind_host?: string | null
+  cors_permissive?: boolean
   routes: MockRoute[]
 }
 
@@ -804,6 +821,8 @@ interface MockServerState {
   port: number
   running: boolean
   request_count: number
+  bind_host: string
+  cors_permissive: boolean
 }
 
 interface SyncConfig {

@@ -14,7 +14,7 @@
 
 ### 2. Script Injection via Pre-Request/Test Scripts
 **Threat:** Malicious scripts could access the filesystem or make unauthorized network calls.
-**Mitigation:** Pre-request and test scripts run in a sandboxed JS engine (`boa_engine` or `deno_core`) embedded in Rust. The sandbox has no access to the filesystem, network, or OS APIs. Scripts can only interact with the request/response through a controlled API (`900api.expect`, `900api.response`, etc.).
+**Mitigation:** Pre-request and test scripts run in a sandboxed JS engine (`boa_engine`) embedded in Rust. The sandbox has no access to the filesystem, network, DOM, or OS APIs. Scripts can only read the controlled `api900.response` object. Loop, recursion, and stack limits are configured before script evaluation.
 
 ### 3. Malicious API Responses
 **Threat:** An API could return a response designed to exploit the response viewer.
@@ -31,6 +31,14 @@
 ### 6. Sensitive Data in Exported Files
 **Threat:** Exported files may contain API keys or tokens that users accidentally share.
 **Mitigation:** Documentation warns users about this risk. Environment variables can be used for secrets. Users are responsible for managing exported file security.
+
+### 7. Generated Documentation Injection
+**Threat:** Collection names, request names, URLs, headers, params, or bodies could contain HTML or script content that executes when exported docs are opened.
+**Mitigation:** HTML documentation generation escapes user-controlled content before writing it into the document. Unknown HTTP methods are rendered with a safe fallback CSS class instead of being used directly as arbitrary class names.
+
+### 8. Mock Server Exposure
+**Threat:** A local mock server could be reachable from the LAN or accept arbitrary browser origins without the user intending it.
+**Mitigation:** Mock servers bind to `127.0.0.1` by default and permissive CORS is disabled by default. LAN binding (`0.0.0.0`) and permissive CORS are explicit opt-in settings.
 
 ## Not in Scope
 

@@ -44,8 +44,14 @@
 - Multiple mock servers can run simultaneously on different ports
 - Graceful shutdown via `tokio::sync::oneshot` channel
 - Routes are immutable while server is running (must stop to edit)
-- CORS enabled by default for cross-origin testing
 - Default Content-Type is `application/json` if not specified in route headers
+
+## Post-Audit Update
+- Mock servers now bind to `127.0.0.1` by default instead of all interfaces.
+- LAN binding via `0.0.0.0` is available only when explicitly requested in `MockServerConfig.bind_host`.
+- Permissive CORS is disabled by default and must be explicitly enabled with `MockServerConfig.cors_permissive`.
+- `get_mock_server_state` now returns the live request counter plus `bind_host` and `cors_permissive`.
+- Unit tests cover default loopback binding, explicit LAN binding, localhost normalization, and invalid bind host rejection.
 
 ## Known Issues
 - No mock route persistence (routes are in-memory only)

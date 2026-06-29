@@ -18,9 +18,14 @@
     port: number
     running: boolean
     request_count: number
+    bind_host: string
+    cors_permissive: boolean
   }
 
   let port = $state(3001)
+  let allowLan = $state(false)
+  let allowCors = $state(false)
+  let runningBindHost = $state('127.0.0.1')
   let routes = $state<MockRoute[]>([
     {
       id: crypto.randomUUID(),
@@ -53,9 +58,15 @@
     error = null
     try {
       await invoke('mock_start', {
-        config: { port, routes },
+        config: {
+          port,
+          routes,
+          bind_host: allowLan ? '0.0.0.0' : '127.0.0.1',
+          cors_permissive: allowCors,
+        },
       })
       running = true
+      runningBindHost = allowLan ? '0.0.0.0' : '127.0.0.1'
       pollState()
     } catch (e) {
       error = String(e)
@@ -76,6 +87,8 @@
     try {
       const state = await invoke<MockServerState>('mock_get_state', { port })
       requestCount = state.request_count
+      runningBindHost = state.bind_host
+      allowCors = state.cors_permissive
       setTimeout(pollState, 2000)
     } catch {
       running = false
@@ -129,6 +142,14 @@
         disabled={running}
       />
     </div>
+    <label class="flex items-center gap-1.5 text-xs text-text-muted">
+      <input type="checkbox" bind:checked={allowLan} class="accent-accent" disabled={running} />
+      LAN
+    </label>
+    <label class="flex items-center gap-1.5 text-xs text-text-muted">
+      <input type="checkbox" bind:checked={allowCors} class="accent-accent" disabled={running} />
+      CORS
+    </label>
     <span class="flex items-center gap-1.5 text-xs font-medium {running ? 'text-success' : 'text-text-muted'}">
       <span class="h-2 w-2 rounded-full {running ? 'bg-success' : 'bg-text-muted'}"></span>
       {running ? 'Running' : 'Stopped'}
@@ -162,7 +183,7 @@
 
   {#if running}
     <div class="border-b border-border bg-success/5 px-3 py-2 text-xs text-success">
-      Mock server running at http://localhost:{port}
+      Mock server running at http://localhost:{port}{runningBindHost === '0.0.0.0' ? ' (LAN enabled)' : ''}
     </div>
   {/if}
 

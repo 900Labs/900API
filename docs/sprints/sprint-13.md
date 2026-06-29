@@ -38,14 +38,15 @@
 - Assertions are declarative (type + target + operator + expected) rather than code-based
 - JSON path extraction uses dot notation with array index support
 - Test suites run sequentially (not parallel) to avoid rate limiting
-- Environment variables accepted but not yet applied (placeholder for future)
-- Pre-request and test script fields exist but not yet executed (placeholder for JS scripting integration)
 - TestRunner replaces the old TestScripts view in the Tests tab
 
+## Post-Audit Update
+- Environment variables are now applied to test request URL, headers, params, body, and auth fields.
+- `TestRunner.svelte` passes the active environment into `run_test_suites`.
+- Pre-request scripts execute before the HTTP request; script errors fail the suite without sending the request.
+- Test scripts execute after assertions; script errors fail the suite and are returned in `TestSuiteResult.error`.
+
 ## Known Issues
-- Environment variables not applied to test requests
-- Pre-request scripts not executed
-- Test scripts not executed (only assertions are evaluated)
 - No test suite persistence (in-memory only)
 - No parallel test execution
 - No test report export (JUnit, HTML)

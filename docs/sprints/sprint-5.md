@@ -37,8 +37,11 @@
 - `api900.expect` assertion methods not yet wired (pass/fail/status/header/bodyContains)
 - Test results collection not yet implemented (uses throw/catch for pass/fail)
 - No syntax highlighting in script editor (post-MVP)
-- Pre-request scripts not yet implemented (post-MVP)
-- Scripts not saved with requests in collections (post-MVP)
+
+## Post-Audit Update
+- The scripting engine now configures loop, recursion, and stack limits before evaluating user scripts.
+- Pre-request and test scripts are persisted with saved requests and are executed by the test runner.
+- The current script API remains `api900.response`; richer helpers such as `api900.expect`, request inspection, logging, and environment mutation are still future work.
 
 ## Next Sprint
 - Sprint 6: Import/Export, CLI Runner & Documentation Generation

@@ -34,17 +34,16 @@
 - Response viewer for GraphQL
 
 ### Sprint 5: Test Scripts & Pre-Request Scripts
-- Sandboxed JS runtime (`boa_engine` or `deno_core`)
+- Sandboxed JS runtime (`boa_engine`)
 - Pre-request script editor
-- Test script editor with assertion library
+- Test script editor with assertion support through the test runner
 - Test results panel
 - Collection-level test runner
 
 ### Sprint 6: Import/Export, CLI Runner & Documentation Generation
 - Postman Collection v2.1 import
-- cURL command import
-- OpenAPI 3.x / Swagger 2.0 import
-- Export to Postman, cURL, OpenAPI
+- 900API native JSON import/export
+- CLI export to Postman Collection v2.1 and cURL commands
 - CLI runner (`900api run`, `900api export`)
 - API documentation generation (HTML, Markdown)
 
@@ -61,6 +60,7 @@
 - **Sprint 12**: Git-native sync (file watching, diff viewer, merge conflict resolution)
 - **Sprint 13**: Advanced test runner (data-driven testing, request chaining, scheduled runs, HTML reports)
 - **Sprint 14**: API documentation enhancements (interactive docs, custom branding, OpenAPI live editing)
+- **Sprint 14+**: cURL import, OpenAPI 3.x / Swagger 2.0 import, and OpenAPI export
 - **Sprint 15**: Performance & polish (memory optimization, cold start, keyboard shortcuts, command palette, search)
 
 ### Phase 4: Ecosystem & Community

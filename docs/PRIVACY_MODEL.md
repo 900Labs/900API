@@ -46,4 +46,4 @@ Run it before any release:
 
 ## Export Safety
 
-When you export collections or environments, the exported files may contain sensitive data (API keys, tokens, URLs). These files are written to the path you choose. Be careful when sharing exported files or committing them to version control — use environment variables for secrets and never commit `.env` files.
+When you export collections, environments, or generated documentation, the exported files may contain sensitive data (API keys, tokens, URLs). Generated documentation writes are restricted to an existing parent directory inside the user's home directory and refuse symbolic-link targets. Be careful when sharing exported files or committing them to version control - use environment variables for secrets and never commit `.env` files.

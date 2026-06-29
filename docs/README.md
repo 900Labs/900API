@@ -5,6 +5,7 @@
 - [API Documentation](API.md) — complete Tauri command reference
 - [Roadmap](ROADMAP.md) — feature roadmap and post-MVP plans
 - [Public Release Checklist](PUBLIC_RELEASE.md) — release readiness checks
+- [Audit Remediation Report](AUDIT_REMEDIATION_REPORT.md) — builder handoff for verified fixes, docs updates, validation, and residual dependency warnings
 
 ## Privacy and Security
 - [Privacy Model](PRIVACY_MODEL.md) — privacy guarantees and data flow

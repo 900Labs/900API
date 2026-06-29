@@ -23,11 +23,13 @@ pub async fn send_request(
         let headers = http::variables::resolve_key_values(&config.headers, vars);
         let params = http::variables::resolve_key_values(&config.params, vars);
         let body = http::variables::resolve_variables(&config.body, vars);
+        let auth = http::variables::resolve_auth_config(&config.auth, vars);
         RequestConfig {
             url,
             headers,
             params,
             body,
+            auth,
             ..config
         }
     } else {
@@ -554,26 +556,45 @@ pub fn write_text_file(
 ) -> Result<(), String> {
     let target = std::path::Path::new(&path);
 
-    // Resolve to canonical path if possible, otherwise use the raw path
-    let canonical = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
-
-    // Reject path traversal — the canonical path must not contain `..` components
-    if path.contains("..") {
+    if target
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
         return Err("Path traversal is not allowed".to_string());
     }
 
-    // Restrict writes to the user's home directory
     let home = dirs::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_string())?;
+        .ok_or_else(|| "Could not determine home directory".to_string())?
+        .canonicalize()
+        .map_err(|e| format!("Could not resolve home directory: {}", e))?;
 
-    if !canonical.starts_with(&home) {
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Parent directory does not exist or is not accessible: {}", e))?;
+
+    if !parent.starts_with(&home) {
         return Err(format!(
             "Path '{}' is outside the allowed directory",
             path
         ));
     }
 
-    std::fs::write(&canonical, content).map_err(|e| e.to_string())
+    let file_name = target
+        .file_name()
+        .ok_or_else(|| "Path must include a file name".to_string())?;
+    let safe_target = parent.join(file_name);
+
+    if let Ok(metadata) = std::fs::symlink_metadata(&safe_target) {
+        if metadata.file_type().is_symlink() {
+            return Err("Refusing to write through a symbolic link".to_string());
+        }
+    }
+
+    std::fs::write(&safe_target, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

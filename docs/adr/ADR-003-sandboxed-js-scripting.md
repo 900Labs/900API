@@ -18,19 +18,19 @@ Pre-request scripts and test assertions need a JavaScript runtime (Postman-compa
 
 Use **`boa_engine`** (pure Rust JS engine) for pre-request and test scripts.
 
-The sandbox exposes a controlled API:
-- `900api.expect` — assertion library (status, header, body, time)
-- `900api.response` — read-only access to the last response
-- `900api.request` — read-only access to the current request config
-- `900api.environment` — get/set environment variables
-- `900api.log` — logging for debug output
+The sandbox currently exposes a controlled API:
+- `api900.response.status` — read-only response status
+- `api900.response.body` — read-only response body string
+- `api900.response.headers` — read-only response headers JSON string
 
 No access to: filesystem, network, DOM, `require`, `import`, `process`.
+Loop, recursion, and stack limits are configured on the Boa context before evaluating user scripts.
 
 ## Consequences
 
-- Scripts are Postman-compatible in syntax but not in API (different namespace)
+- Scripts are JavaScript-compatible in syntax but not Postman-compatible in API
 - `boa_engine` may not support all JS features (no async/await initially)
 - Binary size stays small (no V8 dependency)
 - Security: scripts cannot exfiltrate data or modify the filesystem
 - If `boa_engine` proves too limited, can switch to `deno_core` with `--no-permissions`
+- Richer helpers such as assertions, logging, request inspection, and environment mutation remain future API work.
