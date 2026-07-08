@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum TeamError {
+    #[error("Team storage error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Team serialization error: {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("Team error: {0}")]
     NotFound(String),
     #[error("Already exists: {0}")]
@@ -68,6 +73,7 @@ pub struct ActivityEvent {
 pub struct TeamManager {
     workspaces: Mutex<Vec<Workspace>>,
     activities: Mutex<Vec<ActivityEvent>>,
+    storage_path: Mutex<Option<PathBuf>>,
 }
 
 impl TeamManager {
@@ -75,11 +81,43 @@ impl TeamManager {
         Self {
             workspaces: Mutex::new(Vec::new()),
             activities: Mutex::new(Vec::new()),
+            storage_path: Mutex::new(None),
         }
     }
 
+    pub fn set_storage_path(&self, path: PathBuf) -> Result<(), TeamError> {
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            if !content.trim().is_empty() {
+                let persisted: Vec<Workspace> = serde_json::from_str(&content)?;
+                *self.workspaces.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
+            }
+        }
+        *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
+        Ok(())
+    }
+
+    fn persist_workspaces(&self, workspaces: &[Workspace]) -> Result<(), TeamError> {
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(path) = path {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let json = serde_json::to_string_pretty(workspaces)?;
+            std::fs::write(path, json)?;
+        }
+        Ok(())
+    }
+
     pub fn list_workspaces(&self) -> Vec<Workspace> {
-        self.workspaces.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.workspaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn get_workspace(&self, id: &str) -> Option<Workspace> {
@@ -111,6 +149,7 @@ impl TeamManager {
         };
 
         workspaces.push(workspace.clone());
+        self.persist_workspaces(&workspaces)?;
         Ok(workspace)
     }
 
@@ -121,14 +160,11 @@ impl TeamManager {
         if workspaces.len() == len_before {
             return Err(TeamError::NotFound(id.to_string()));
         }
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 
-    pub fn add_member(
-        &self,
-        workspace_id: &str,
-        member: TeamMember,
-    ) -> Result<(), TeamError> {
+    pub fn add_member(&self, workspace_id: &str, member: TeamMember) -> Result<(), TeamError> {
         let mut workspaces = self.workspaces.lock().unwrap_or_else(|e| e.into_inner());
         let workspace = workspaces
             .iter_mut()
@@ -140,14 +176,11 @@ impl TeamManager {
         }
 
         workspace.members.push(member);
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 
-    pub fn remove_member(
-        &self,
-        workspace_id: &str,
-        member_id: &str,
-    ) -> Result<(), TeamError> {
+    pub fn remove_member(&self, workspace_id: &str, member_id: &str) -> Result<(), TeamError> {
         let mut workspaces = self.workspaces.lock().unwrap_or_else(|e| e.into_inner());
         let workspace = workspaces
             .iter_mut()
@@ -161,6 +194,7 @@ impl TeamManager {
         }
 
         workspace.members.retain(|m| m.id != member_id);
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 
@@ -189,6 +223,7 @@ impl TeamManager {
         }
 
         member.role = role;
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 
@@ -224,9 +259,13 @@ impl TeamManager {
             .find(|w| w.id == workspace_id)
             .ok_or_else(|| TeamError::NotFound(workspace_id.to_string()))?;
 
-        if !workspace.collection_ids.contains(&collection_id.to_string()) {
+        if !workspace
+            .collection_ids
+            .contains(&collection_id.to_string())
+        {
             workspace.collection_ids.push(collection_id.to_string());
         }
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 
@@ -242,6 +281,7 @@ impl TeamManager {
             .ok_or_else(|| TeamError::NotFound(workspace_id.to_string()))?;
 
         workspace.collection_ids.retain(|c| c != collection_id);
+        self.persist_workspaces(&workspaces)?;
         Ok(())
     }
 }
@@ -309,7 +349,9 @@ mod tests {
     fn test_add_duplicate_member() {
         let manager = TeamManager::new();
         let owner = test_owner();
-        let ws = manager.create_workspace("Test", None, owner.clone()).unwrap();
+        let ws = manager
+            .create_workspace("Test", None, owner.clone())
+            .unwrap();
 
         let result = manager.add_member(&ws.id, owner);
         assert!(matches!(result, Err(TeamError::AlreadyExists(_))));
@@ -369,7 +411,9 @@ mod tests {
     fn test_activity_log() {
         let manager = TeamManager::new();
         let owner = test_owner();
-        let ws = manager.create_workspace("Test", None, owner.clone()).unwrap();
+        let ws = manager
+            .create_workspace("Test", None, owner.clone())
+            .unwrap();
 
         let event = ActivityEvent {
             id: "evt-1".to_string(),

@@ -1,7 +1,7 @@
 {
   "name": "900api",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,10 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build --bundles app",
+    "tauri:build:app": "tauri build --bundles app",
+    "tauri:build:dmg": "tauri build --bundles app && ./scripts/build-macos-dmg.sh",
+    "tauri:build:native-dmg": "tauri build --bundles dmg"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

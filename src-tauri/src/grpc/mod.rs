@@ -65,8 +65,7 @@ pub async fn send_grpc_unary(
     }
 
     // Build client with HTTP/2 prior knowledge for plaintext, or normal for TLS
-    let client_builder = reqwest::Client::builder()
-        .danger_accept_invalid_certs(false);
+    let client_builder = reqwest::Client::builder().danger_accept_invalid_certs(false);
 
     let client = if use_tls {
         client_builder
@@ -108,12 +107,8 @@ pub async fn send_grpc_unary(
     // Parse gRPC framing: [compressed(1)] [length(4 BE)] [message]
     let (grpc_status, grpc_message, message_bytes) = if body_bytes.len() >= 5 {
         let _compressed = body_bytes[0];
-        let len = u32::from_be_bytes([
-            body_bytes[1],
-            body_bytes[2],
-            body_bytes[3],
-            body_bytes[4],
-        ]) as usize;
+        let len = u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]])
+            as usize;
 
         if body_bytes.len() >= 5 + len {
             let msg = &body_bytes[5..5 + len];

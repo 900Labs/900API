@@ -6,6 +6,7 @@
 - [Roadmap](ROADMAP.md) — feature roadmap and post-MVP plans
 - [Public Release Checklist](PUBLIC_RELEASE.md) — release readiness checks
 - [Audit Remediation Report](AUDIT_REMEDIATION_REPORT.md) — builder handoff for verified fixes, docs updates, validation, and residual dependency warnings
+- [UX Remediation Report](UX_REMEDIATION_REPORT.md) — builder handoff for the workbench, menus, global search, tabs, folders, history snapshots, cURL import, snippets, response search/examples/compare/viewer tools, variable autocomplete, request runtime settings, OpenAPI import/export, GraphQL query assist/schema explorer, and gRPC proto helper pass
 
 ## Privacy and Security
 - [Privacy Model](PRIVACY_MODEL.md) — privacy guarantees and data flow

@@ -12,11 +12,20 @@ export type SavedRequestData = {
   body: string
   authType: string
   authConfig: string
+  settings: string
   preRequestScript: string
   testScript: string
 }
 
 export const loadRequestStore = writable<SavedRequestData | null>(null)
+
+export type CollectionData = {
+  id: string
+  name: string
+  description: string | null
+  parent_id: string | null
+  sort_order: number
+}
 
 export type EnvironmentData = {
   id: string

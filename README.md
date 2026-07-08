@@ -17,31 +17,48 @@ A developer in Lagos testing APIs pays the same $14/month for Postman as a devel
 ## Features
 
 ### Request Builder
+- Integrated REST workbench with collection rail, history rail, variable rail, request tabs, response panel, and active environment selector
+- App menu bar and global command palette for actions, saved requests, collections, environments, and recent history
 - Full HTTP method support: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
 - Request headers, query parameters, and body types (JSON, form-data, x-www-form-urlencoded, raw, binary)
-- Response viewer with status, timing, size, headers, and pretty-printed body
-- Request history (last 500 requests)
+- Per-request runtime settings for timeout, connect timeout, redirects, SSL verification, proxy URL, and local cookie jar usage
+- Response viewer with status, timing, size, headers, formatted/raw body modes, sandboxed HTML preview, and saved-example comparison
+- Response body search with highlighted matches
+- Save response examples to saved requests for documentation, regression checks, and current-vs-expected comparison
+- Request history (last 500 requests) with full request snapshots for replay
+- Import common cURL commands into editable request tabs
+- Copy/export response body and generate cURL, JavaScript fetch, Python requests, and Go net/http snippets from the active request
 
 ### Collections
-- Organize requests into collections and folders
-- Drag-and-drop reordering
+- Organize requests into collections and nested folders/subcollections
+- Context menus for creating requests, creating folders, renaming, duplicating requests, exporting, and deleting
+- Drag requests between collections and move collections into or out of folders
 - Git-native JSON export for version control
 
 ### Environments
 - Create and manage multiple environments (dev, staging, prod)
 - Variable resolution with `{{variable_name}}` syntax
-- Active environment selector
+- Active environment selector in the REST workbench
+- Variable autocomplete/copy chips for URL, params, headers, auth values, and request body authoring
 
 ### GraphQL
-- Full GraphQL query editor with syntax highlighting
-- Schema introspection and explorer
-- Auto-complete from introspected schema
+- GraphQL query editor with variables, headers, auth, and response viewer
+- Active environment variable resolution
 - Variables panel for GraphQL variables
+- Schema introspection, query assist, and schema explorer with searchable types, fields, arguments, enums, and root operation insertion
+
+### gRPC
+- Unary gRPC calls over h2c or TLS
+- Raw protobuf hex mode for exact byte-level requests
+- UTF-8 body mode for simple byte payloads
+- `.proto` paste-and-parse helper for package, service, RPC, request message, and scalar field discovery
+- Scalar protobuf field builder that generates request hex for common strings, bytes, numbers, booleans, enums-as-numbers, floats, doubles, and fixed-width fields
+- Response viewer with HTTP/gRPC status, timing, size, hex body, UTF-8 preview, headers, and trailers
 
 ### Test Scripts
-- Sandboxed JavaScript pre-request and test scripts with runtime limits
+- Sandboxed JavaScript pre-request and test scripts with runtime limits, saved per request and executed from the Rust sandbox before/after REST sends
 - Assertions for status code, headers, body text, body JSON path, and response time
-- Collection-level test runner with active environment variable resolution
+- Collection-level test runner with active environment variable resolution, local suite persistence, and saved-request import from collections
 
 ### Mock Server
 - Local mock routes with configurable method, path, status, headers, body, and delay
@@ -49,10 +66,15 @@ A developer in Lagos testing APIs pays the same $14/month for Postman as a devel
 - LAN exposure and permissive CORS are explicit opt-in settings
 
 ### Import / Export
-- Import 900API native JSON and Postman Collection v2.1
-- Export 900API native JSON from the app
+- Import 900API native JSON, Postman Collection v2.1, and OpenAPI 3.x / Swagger 2.0 JSON or YAML
+- Export 900API native JSON from the app, including saved response examples
+- Export collections as OpenAPI 3.0.3 JSON from the app
 - CLI export to Postman Collection v2.1 and cURL commands
-- OpenAPI and cURL import are planned formats, not current release features
+- REST workbench cURL import for common commands from browsers, docs pages, Postman, and Insomnia
+
+### Local Workflow State
+- Git sync configuration, installed plugin manifests, and team workspaces persist in local app data files
+- Plugin hooks and permissions are stored as manifest metadata in this release; plugin hook code is not executed at runtime
 
 ### CLI Runner
 - `900api run <collection.json>` — headless collection execution for CI/CD
@@ -62,7 +84,7 @@ A developer in Lagos testing APIs pays the same $14/month for Postman as a devel
 
 ### API Documentation
 - Generate static HTML or Markdown API docs from collections
-- Include request examples, response examples, and descriptions
+- Include request details, saved response examples, and descriptions
 - HTML output escapes collection and request content before rendering
 
 ## Tech Stack
@@ -103,11 +125,19 @@ Build and run:
 git clone https://github.com/900Labs/900API.git
 cd 900API
 npm install
-cargo tauri dev          # Run in development mode (hot-reload)
-cargo tauri build        # Build for production
+npm run tauri:dev        # Run in development mode (hot-reload)
+npm run tauri:build      # Build the platform app bundle
 ```
 
-Production app bundles are written under `src-tauri/target/release/bundle/`.
+`npm run dev` starts the Svelte/Vite frontend only. It is useful for layout checks in a browser, but request sending, persistence, imports, exports, mocks, sync, and other backend-backed actions require the Tauri bridge from `npm run tauri:dev` or a built desktop app. Browser preview mode now returns empty local data for read-only lists and shows a clear desktop-runtime-required error for backend actions.
+
+Production app bundles are written under `target/release/bundle/`.
+
+macOS release artifacts:
+```bash
+npm run tauri:build:dmg         # Build 900API.app, then create an AppleScript-free DMG
+npm run tauri:build:native-dmg  # Optional: Tauri's Finder-styled DMG path, requires GUI/Finder automation
+```
 
 ### CLI Only
 ```bash
@@ -133,6 +163,7 @@ Your data never leaves your machine unless you explicitly export it.
 - [Quality Gate](docs/QUALITY_GATE.md) — required pre-merge validation
 - [Sprint Process](docs/SPRINT_PROCESS.md) — sprint workflow and review policy
 - [Roadmap](docs/ROADMAP.md) — feature roadmap and post-MVP plans
+- [UX Remediation Report](docs/UX_REMEDIATION_REPORT.md) — workbench, menus, global search, tabs, collection folders, cURL import, snippets, response search, and variable autocomplete changes
 
 ## Contributing
 

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use thiserror::Error;
 
@@ -60,17 +61,50 @@ pub struct Plugin {
 
 pub struct PluginManager {
     plugins: Mutex<Vec<Plugin>>,
+    storage_path: Mutex<Option<PathBuf>>,
 }
 
 impl PluginManager {
     pub fn new() -> Self {
         Self {
             plugins: Mutex::new(Vec::new()),
+            storage_path: Mutex::new(None),
         }
     }
 
+    pub fn set_storage_path(&self, path: PathBuf) -> Result<(), PluginError> {
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            if !content.trim().is_empty() {
+                let persisted: Vec<Plugin> = serde_json::from_str(&content)?;
+                *self.plugins.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
+            }
+        }
+        *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
+        Ok(())
+    }
+
+    fn persist_plugins(&self, plugins: &[Plugin]) -> Result<(), PluginError> {
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(path) = path {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let json = serde_json::to_string_pretty(plugins)?;
+            std::fs::write(path, json)?;
+        }
+        Ok(())
+    }
+
     pub fn list_plugins(&self) -> Vec<Plugin> {
-        self.plugins.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.plugins
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn get_plugin(&self, id: &str) -> Option<Plugin> {
@@ -103,6 +137,7 @@ impl PluginManager {
         };
 
         plugins.push(plugin.clone());
+        self.persist_plugins(&plugins)?;
         Ok(plugin)
     }
 
@@ -113,6 +148,7 @@ impl PluginManager {
         if plugins.len() == len_before {
             return Err(PluginError::NotFound(id.to_string()));
         }
+        self.persist_plugins(&plugins)?;
         Ok(())
     }
 
@@ -123,6 +159,7 @@ impl PluginManager {
             .find(|p| p.manifest.id == id)
             .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
         plugin.enabled = true;
+        self.persist_plugins(&plugins)?;
         Ok(())
     }
 
@@ -133,6 +170,7 @@ impl PluginManager {
             .find(|p| p.manifest.id == id)
             .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
         plugin.enabled = false;
+        self.persist_plugins(&plugins)?;
         Ok(())
     }
 
@@ -147,6 +185,7 @@ impl PluginManager {
             .find(|p| p.manifest.id == id)
             .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
         plugin.config = config;
+        self.persist_plugins(&plugins)?;
         Ok(())
     }
 

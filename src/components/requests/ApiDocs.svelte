@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { save } from '@tauri-apps/plugin-dialog'
   import { BookOpen, Download, FileCode, ChevronDown, ChevronRight } from '@lucide/svelte'
 

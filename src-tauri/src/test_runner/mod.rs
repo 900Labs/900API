@@ -124,6 +124,7 @@ impl TestRequest {
             body_type,
             body: crate::http::variables::resolve_variables(&self.body, env_vars),
             auth: crate::http::variables::resolve_auth_config(&self.auth, env_vars),
+            settings: Default::default(),
         }
     }
 }

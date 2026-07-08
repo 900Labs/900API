@@ -57,6 +57,18 @@ pub fn run() {
 
             let state: tauri::State<AppState> = app.state();
             *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(database);
+            state
+                .sync_manager
+                .set_storage_path(app_data_dir.join("sync-config.json"))
+                .expect("failed to load sync config");
+            state
+                .plugin_manager
+                .set_storage_path(app_data_dir.join("plugins.json"))
+                .expect("failed to load plugin registry");
+            state
+                .team_manager
+                .set_storage_path(app_data_dir.join("team-workspaces.json"))
+                .expect("failed to load team workspaces");
 
             Ok(())
         })
@@ -64,8 +76,11 @@ pub fn run() {
             commands::get_app_version,
             commands::send_request,
             commands::send_graphql,
+            commands::introspect_graphql_schema,
             commands::list_collections,
             commands::create_collection,
+            commands::update_collection,
+            commands::move_collection,
             commands::delete_collection,
             commands::list_environments,
             commands::create_environment,
@@ -77,10 +92,16 @@ pub fn run() {
             commands::create_request,
             commands::update_request,
             commands::delete_request,
+            commands::list_response_examples,
+            commands::create_response_example,
+            commands::delete_response_example,
+            commands::move_request,
             commands::export_collection,
+            commands::export_openapi,
             commands::import_collection_file,
             commands::run_test_script,
             commands::import_postman,
+            commands::import_openapi,
             commands::ws_connect,
             commands::ws_send,
             commands::ws_disconnect,

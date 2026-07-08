@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
-  import { Play, Plus, Trash2, CheckCircle, XCircle, LoaderCircle, FlaskConical } from '@lucide/svelte'
+  import { invoke } from '../../lib/tauri'
+  import { Play, Plus, Trash2, CheckCircle, XCircle, LoaderCircle, FlaskConical, Download } from '@lucide/svelte'
   import { activeEnvironmentStore } from '../../lib/stores'
 
   type KeyValue = { key: string; value: string; enabled: boolean }
@@ -35,6 +35,29 @@
     test_script: string
   }
 
+  type Collection = {
+    id: string
+    name: string
+    parent_id?: string | null
+    sort_order?: number
+  }
+
+  type SavedRequest = {
+    id: string
+    collection_id: string
+    name: string
+    method: string
+    url: string
+    headers: string
+    params: string
+    body_type: string
+    body: string
+    auth_type: string
+    auth_config: string
+    pre_request_script: string
+    test_script: string
+  }
+
   type AssertionResult = {
     assertion_id: string
     passed: boolean
@@ -60,7 +83,10 @@
     results: TestSuiteResult[]
   }
 
-  let suites = $state<TestSuite[]>([
+  const storageKey = '900api:test-runner:suites'
+
+  function defaultSuites(): TestSuite[] {
+    return [
     {
       id: crypto.randomUUID(),
       name: 'GET /posts/1',
@@ -92,12 +118,28 @@
       pre_request_script: '',
       test_script: '',
     },
-  ])
+  ]
+  }
+
+  function loadPersistedSuites(): TestSuite[] {
+    if (typeof localStorage === 'undefined') return defaultSuites()
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) || 'null')
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultSuites()
+    } catch {
+      return defaultSuites()
+    }
+  }
+
+  let suites = $state<TestSuite[]>(loadPersistedSuites())
   let selectedSuiteId = $state<string | null>(null)
   let running = $state(false)
   let runResult = $state<TestRunResult | null>(null)
   let error = $state<string | null>(null)
   let activeEnvVars = $state<KeyValue[]>([])
+  let collections = $state<Collection[]>([])
+  let selectedCollectionId = $state('')
+  let importMessage = $state<string | null>(null)
 
   $effect(() => {
     if (selectedSuiteId === null && suites.length > 0) {
@@ -172,6 +214,76 @@
     selectedSuite.assertions = selectedSuite.assertions.filter((a) => a.id !== id)
   }
 
+  function parseRows(value: string): KeyValue[] {
+    try {
+      const parsed = JSON.parse(value || '[]')
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+
+  function parseAuth(request: SavedRequest): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(request.auth_config || '{}')
+      return { ...(typeof parsed === 'object' && parsed !== null ? parsed : {}), auth_type: request.auth_type }
+    } catch {
+      return { auth_type: request.auth_type || 'none' }
+    }
+  }
+
+  function suiteFromSavedRequest(request: SavedRequest): TestSuite {
+    return {
+      id: request.id,
+      name: request.name,
+      request: {
+        method: request.method,
+        url: request.url,
+        headers: parseRows(request.headers),
+        params: parseRows(request.params),
+        body_type: request.body_type,
+        body: request.body,
+        auth: parseAuth(request),
+      },
+      assertions: [
+        {
+          id: `${request.id}-status-2xx`,
+          assertion_type: 'status',
+          target: 'status',
+          operator: 'less_than',
+          expected: '400',
+        },
+      ],
+      pre_request_script: request.pre_request_script || '',
+      test_script: request.test_script || '',
+    }
+  }
+
+  async function loadCollections() {
+    try {
+      collections = await invoke<Collection[]>('list_collections')
+      if (!selectedCollectionId) selectedCollectionId = collections[0]?.id ?? ''
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
+  async function importCollectionSuites() {
+    if (!selectedCollectionId) return
+    error = null
+    importMessage = null
+    try {
+      const requests = await invoke<SavedRequest[]>('list_requests', { collectionId: selectedCollectionId })
+      const imported = requests.map(suiteFromSavedRequest)
+      const importedIds = new Set(imported.map((suite) => suite.id))
+      suites = [...suites.filter((suite) => !importedIds.has(suite.id)), ...imported]
+      selectedSuiteId = imported[0]?.id ?? selectedSuiteId
+      importMessage = `Imported ${imported.length} saved request${imported.length === 1 ? '' : 's'} as suites.`
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
   async function runAllTests() {
     running = true
     error = null
@@ -197,6 +309,14 @@
     activeEnvVars = env?.variables || []
   })
 
+  loadCollections()
+
+  $effect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(storageKey, JSON.stringify(suites))
+    }
+  })
+
   $effect(() => {
     return () => {
       unsubEnv()
@@ -210,6 +330,27 @@
     <FlaskConical class="h-5 w-5 text-text-muted" />
     <span class="text-sm font-medium">Test Runner</span>
     <span class="text-xs text-text-muted">{suites.length} suite(s)</span>
+    <select
+      class="ml-2 max-w-56 rounded border border-border bg-surface px-2 py-1.5 text-xs outline-none focus:border-accent"
+      bind:value={selectedCollectionId}
+    >
+      {#if collections.length === 0}
+        <option value="">No saved collections</option>
+      {:else}
+        {#each collections as collection (collection.id)}
+          <option value={collection.id}>{collection.name}</option>
+        {/each}
+      {/if}
+    </select>
+    <button
+      class="flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:text-text disabled:opacity-50"
+      onclick={importCollectionSuites}
+      disabled={!selectedCollectionId}
+      title="Import saved requests as test suites"
+    >
+      <Download class="h-3.5 w-3.5" />
+      Saved
+    </button>
     <div class="flex-1"></div>
     {#if runResult}
       <span class="text-xs {runResult.failed === 0 ? 'text-success' : 'text-error'}">
@@ -233,6 +374,9 @@
 
   {#if error}
     <div class="border-b border-border bg-error/10 p-3 text-sm text-error">{error}</div>
+  {/if}
+  {#if importMessage}
+    <div class="border-b border-border bg-success/10 p-3 text-sm text-success">{importMessage}</div>
   {/if}
 
   <div class="flex flex-1 overflow-hidden">

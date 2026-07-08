@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
-  import { listen } from '@tauri-apps/api/event'
+  import { invoke, listen } from '../../lib/tauri'
   import { Plug, Unplug, Send, Trash2 } from '@lucide/svelte'
 
   type WsMessage = {

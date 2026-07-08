@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "900api")]
-#[command(version = "0.1.0")]
+#[command(version = "0.1.1")]
 #[command(about = "900API CLI — headless API collection runner for CI/CD")]
 struct Cli {
     #[command(subcommand)]

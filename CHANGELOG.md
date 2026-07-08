@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Updated the transitive `plist`/`quick-xml` lockfile path so `cargo audit` no longer reports `RUSTSEC-2026-0194` or `RUSTSEC-2026-0195`.
+
+### Fixed
+- Wired REST pre-request and test scripts into the main workbench send flow through the Rust Boa sandbox.
+- Added saved-request import and local suite persistence to the Test Runner.
+- Routed WebSocket and SSE event listeners through the browser-safe Tauri wrapper.
+- Persisted Git sync configuration, plugin manifests, and team workspaces in local app data files.
+- Aligned app, package, sidebar, browser fallback, and CLI version strings to `0.1.1`.
+
+### Documentation
+- Clarified that plugin hooks and permissions are persisted manifest metadata in this release, not executable runtime hooks.
+- Updated release-readiness docs for the current audit state and local workflow persistence model.
+
 ## [0.1.1] - 2026-06-29
 
 ### Security

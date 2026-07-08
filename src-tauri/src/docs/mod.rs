@@ -28,6 +28,7 @@ pub struct EndpointDoc {
     pub body: String,
     pub auth_type: String,
     pub description: String,
+    pub response_examples: Vec<crate::models::ResponseExample>,
 }
 
 pub fn generate_collection_docs(db: &Database, collection_id: &str) -> Result<ApiDoc, DocsError> {
@@ -63,7 +64,7 @@ pub fn generate_collection_docs(db: &Database, collection_id: &str) -> Result<Ap
                 req.method, req.url, req.method, auth_type
             );
 
-            EndpointDoc {
+            Ok(EndpointDoc {
                 name: req.name.clone(),
                 method: req.method.clone(),
                 url: req.url.clone(),
@@ -81,9 +82,10 @@ pub fn generate_collection_docs(db: &Database, collection_id: &str) -> Result<Ap
                 body: req.body.clone(),
                 auth_type: auth_type.to_string(),
                 description,
-            }
+                response_examples: db.list_response_examples(&req.id)?,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, crate::db::DbError>>()?;
 
     Ok(ApiDoc {
         collection_name: collection.name.clone(),
@@ -148,6 +150,24 @@ pub fn docs_to_markdown(doc: &ApiDoc) -> String {
         }
 
         md.push_str(&format!("**Authentication:** {}\n\n", endpoint.auth_type));
+
+        if !endpoint.response_examples.is_empty() {
+            md.push_str("**Response Examples:**\n\n");
+            for example in &endpoint.response_examples {
+                md.push_str(&format!(
+                    "#### {} - {} {}\n\n",
+                    example.name, example.status, example.status_text
+                ));
+                md.push_str(&format!(
+                    "- Time: {} ms\n- Size: {} bytes\n\n",
+                    example.time_ms, example.size_bytes
+                ));
+                md.push_str("```json\n");
+                md.push_str(&example.body);
+                md.push_str("\n```\n\n");
+            }
+        }
+
         md.push_str("---\n\n");
     }
 
@@ -280,6 +300,25 @@ pub fn docs_to_html(doc: &ApiDoc) -> String {
             "<p><strong>Authentication:</strong> {}</p>\n",
             escape_html(&endpoint.auth_type)
         ));
+
+        if !endpoint.response_examples.is_empty() {
+            html.push_str("<p><strong>Response Examples:</strong></p>\n");
+            for example in &endpoint.response_examples {
+                html.push_str(&format!(
+                    "<h4>{} - {} {}</h4>\n",
+                    escape_html(&example.name),
+                    example.status,
+                    escape_html(&example.status_text)
+                ));
+                html.push_str(&format!(
+                    "<p>{} ms · {} bytes</p>\n<pre><code>{}</code></pre>\n",
+                    example.time_ms,
+                    example.size_bytes,
+                    escape_html(&example.body)
+                ));
+            }
+        }
+
         html.push_str("</div>\n");
     }
 
@@ -319,12 +358,26 @@ mod tests {
                 body: "".to_string(),
                 auth_type: "Bearer Token".to_string(),
                 description: "".to_string(),
+                response_examples: vec![crate::models::ResponseExample {
+                    id: "example-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    name: "200 OK".to_string(),
+                    status: 200,
+                    status_text: "OK".to_string(),
+                    headers: "{}".to_string(),
+                    body: "{\"ok\":true}".to_string(),
+                    time_ms: 25,
+                    size_bytes: 11,
+                    created_at: "2026-07-04T00:00:00Z".to_string(),
+                }],
             }],
         };
         let md = docs_to_markdown(&doc);
         assert!(md.contains("GET"));
         assert!(md.contains("https://api.example.com/users"));
         assert!(md.contains("Bearer Token"));
+        assert!(md.contains("Response Examples"));
+        assert!(md.contains("{\"ok\":true}"));
     }
 
     #[test]
@@ -342,6 +395,7 @@ mod tests {
                 body: "{\"name\":\"John\"}".to_string(),
                 auth_type: "None".to_string(),
                 description: "".to_string(),
+                response_examples: vec![],
             }],
         };
         let html = docs_to_html(&doc);
@@ -374,6 +428,18 @@ mod tests {
                 body: "{\"x\":\"</script>\"}".to_string(),
                 auth_type: "<admin>".to_string(),
                 description: "".to_string(),
+                response_examples: vec![crate::models::ResponseExample {
+                    id: "example-1".to_string(),
+                    request_id: "request-1".to_string(),
+                    name: "<b>Unsafe</b>".to_string(),
+                    status: 200,
+                    status_text: "OK<script>".to_string(),
+                    headers: "{}".to_string(),
+                    body: "<img src=x onerror=alert(1)>".to_string(),
+                    time_ms: 1,
+                    size_bytes: 31,
+                    created_at: "2026-07-04T00:00:00Z".to_string(),
+                }],
             }],
         };
 
@@ -385,5 +451,8 @@ mod tests {
         assert!(html.contains("class=\"method OTHER\""));
         assert!(html.contains("&lt;svg onload=alert(1)&gt;"));
         assert!(html.contains("&quot;quoted&quot;"));
+        assert!(!html.contains("<b>Unsafe</b>"));
+        assert!(!html.contains("<img src=x onerror=alert(1)>"));
+        assert!(html.contains("&lt;b&gt;Unsafe&lt;/b&gt;"));
     }
 }

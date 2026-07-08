@@ -25,34 +25,68 @@ pub struct SyncConfig {
 
 pub struct SyncManager {
     config: Mutex<Option<SyncConfig>>,
+    storage_path: Mutex<Option<PathBuf>>,
 }
 
 impl SyncManager {
     pub fn new() -> Self {
         Self {
             config: Mutex::new(None),
+            storage_path: Mutex::new(None),
         }
     }
 
-    pub fn set_config(&self, config: SyncConfig) {
+    pub fn set_storage_path(&self, path: PathBuf) -> Result<(), SyncError> {
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            if !content.trim().is_empty() {
+                let config: SyncConfig = serde_json::from_str(&content)?;
+                *self.config.lock().unwrap_or_else(|e| e.into_inner()) = Some(config);
+            }
+        }
+        *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
+        Ok(())
+    }
+
+    fn persist_config(&self, config: &SyncConfig) -> Result<(), SyncError> {
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(path) = path {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let json = serde_json::to_string_pretty(config)?;
+            std::fs::write(path, json)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_config(&self, config: SyncConfig) -> Result<(), SyncError> {
+        self.persist_config(&config)?;
         *self.config.lock().unwrap_or_else(|e| e.into_inner()) = Some(config);
+        Ok(())
     }
 
     pub fn get_config(&self) -> Option<SyncConfig> {
-        self.config.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
-    pub fn export_collection(
-        &self,
-        collection: &ExportCollection,
-    ) -> Result<PathBuf, SyncError> {
+    pub fn export_collection(&self, collection: &ExportCollection) -> Result<PathBuf, SyncError> {
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
         let config = config.as_ref().ok_or(SyncError::NoSyncDir)?;
 
         let dir = PathBuf::from(&config.directory);
         std::fs::create_dir_all(&dir)?;
 
-        let safe_name = collection.name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        let safe_name = collection
+            .name
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
         let file_path = dir.join(format!("{}.json", safe_name));
 
         let json = serde_json::to_string_pretty(collection)?;
@@ -61,10 +95,7 @@ impl SyncManager {
         Ok(file_path)
     }
 
-    pub fn import_collection(
-        &self,
-        file_path: &str,
-    ) -> Result<ExportCollection, SyncError> {
+    pub fn import_collection(&self, file_path: &str) -> Result<ExportCollection, SyncError> {
         let content = std::fs::read_to_string(file_path)?;
         let collection: ExportCollection = serde_json::from_str(&content)?;
         Ok(collection)
@@ -298,7 +329,7 @@ mod tests {
             author_name: "Test".to_string(),
             author_email: "test@test.com".to_string(),
         };
-        manager.set_config(config.clone());
+        manager.set_config(config.clone()).unwrap();
         let retrieved = manager.get_config().unwrap();
         assert_eq!(retrieved.directory, "/tmp/test-sync");
     }

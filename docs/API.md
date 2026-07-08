@@ -9,7 +9,7 @@ Returns the application version string.
 
 ```typescript
 const version = await invoke<string>('get_app_version')
-// "0.1.0"
+// "0.1.1"
 ```
 
 ### `send_request`
@@ -24,7 +24,15 @@ const response = await invoke<ResponseData>('send_request', {
     params: [{ key: 'page', value: '1', enabled: true }],
     body_type: 'none',
     body: '',
-    auth: { auth_type: 'none' }
+    auth: { auth_type: 'none' },
+    settings: {
+      timeout_ms: 120000,
+      connect_timeout_ms: 30000,
+      follow_redirects: true,
+      verify_ssl: true,
+      proxy_url: '',
+      use_cookie_jar: false
+    }
   },
   environmentVariables: undefined
 })
@@ -35,6 +43,8 @@ const response = await invoke<ResponseData>('send_request', {
 - `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution in URL, headers, params, body, and auth fields
 
 **Returns:** `ResponseData` with `status`, `status_text`, `headers`, `body`, `time_ms`, `size_bytes`
+
+`config.settings` controls request runtime behavior. Defaults are a 120000 ms request timeout, 30000 ms connect timeout, redirects enabled, SSL verification enabled, no proxy, and no shared local cookie jar. Setting `use_cookie_jar: true` opts into an in-memory app-local cookie jar shared by cookie-enabled REST requests during the current app session.
 
 ### `send_graphql`
 Sends a GraphQL query to a GraphQL endpoint.
@@ -62,31 +72,90 @@ const response = await invoke<ResponseData>('send_graphql', {
 
 **Returns:** `ResponseData`
 
+### `introspect_graphql_schema`
+Runs the standard GraphQL introspection query and returns a compact schema summary for the GraphQL schema explorer.
+
+```typescript
+const schema = await invoke<GraphQLSchema>('introspect_graphql_schema', {
+  url: 'https://api.example.com/graphql',
+  headers: [{ key: 'Authorization', value: 'Bearer token', enabled: true }],
+  auth: { auth_type: 'none', username: '', password: '', token: '', api_key: '', api_key_name: '', api_key_in: 'header' },
+  environmentVariables: undefined
+})
+```
+
+**Parameters:**
+- `url: string` — the GraphQL endpoint URL
+- `headers: KeyValue[]` — custom headers
+- `auth: AuthConfig` — auth configuration
+- `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution
+
+**Returns:** `GraphQLSchema` with root operation names and non-executable schema metadata for types, fields, arguments, input fields, enum values, and possible types.
+
+If the server disables introspection or returns GraphQL `errors`, the command returns an error with the server-provided message when available.
+
 ### `list_collections`
-Returns all collections.
+Returns all collections, including nested folder metadata.
 
 ```typescript
 const collections = await invoke<Collection[]>('list_collections')
 ```
 
-**Returns:** `Collection[]` with `id`, `name`, `description`, `created_at`, `updated_at`
+**Returns:** `Collection[]` with `id`, `name`, `description`, `parent_id`, `sort_order`, `created_at`, `updated_at`
 
 ### `create_collection`
-Creates a new collection.
+Creates a new collection or subcollection.
 
 ```typescript
 const collection = await invoke<Collection>('create_collection', {
   name: 'My API',
-  description: 'Production API tests'
+  description: 'Production API tests',
+  parentId: null
 })
 ```
 
 **Parameters:**
 - `name: string` — collection name
 - `description?: string` — optional description
+- `parentId?: string | null` — optional parent collection/folder ID
+
+### `update_collection`
+Renames or updates a collection description.
+
+```typescript
+await invoke('update_collection', {
+  id: 'uuid-here',
+  name: 'Renamed API',
+  description: 'Updated description'
+})
+```
+
+**Parameters:**
+- `id: string` — collection ID
+- `name: string` — collection name
+- `description?: string | null` — optional description
+
+### `move_collection`
+Moves a collection into another collection/folder or back to the root. The backend rejects moves that would create a parent/child cycle.
+
+```typescript
+await invoke('move_collection', {
+  id: 'uuid-here',
+  parentId: 'parent-uuid'
+})
+
+await invoke('move_collection', {
+  id: 'uuid-here',
+  parentId: null
+})
+```
+
+**Parameters:**
+- `id: string` — collection ID to move
+- `parentId?: string | null` — destination parent collection/folder ID
 
 ### `delete_collection`
-Deletes a collection and all its requests (cascade).
+Deletes a collection, its child collections, and its requests.
 
 ```typescript
 await invoke('delete_collection', { id: 'uuid-here' })
@@ -114,7 +183,7 @@ await invoke('delete_environment', { id: 'uuid-here' })
 ```
 
 ### `list_history`
-Returns recent request history.
+Returns recent request history, including response size and the original request snapshot used for replay.
 
 ```typescript
 const history = await invoke<HistoryEntry[]>('list_history', { limit: 100 })
@@ -122,6 +191,10 @@ const history = await invoke<HistoryEntry[]>('list_history', { limit: 100 })
 
 **Parameters:**
 - `limit?: number` — max entries (default 100, max 500)
+
+**Returns:** `HistoryEntry[]` with `id`, `method`, `url`, `status`, `time_ms`, `size_bytes`, `request_snapshot`, and `created_at`.
+
+`request_snapshot` is a JSON-serialized `RequestConfig` captured before active environment variables are resolved. The REST workbench uses it to reopen history entries with headers, params, body, and auth intact while preserving `{{variable}}` placeholders.
 
 ### `clear_history`
 Clears all request history.
@@ -140,7 +213,7 @@ const requests = await invoke<SavedRequest[]>('list_requests', { collectionId: '
 **Parameters:**
 - `collectionId: string` — the collection ID
 
-**Returns:** `SavedRequest[]` with `id`, `collection_id`, `name`, `method`, `url`, `headers`, `params`, `body_type`, `body`, `auth_type`, `auth_config`, `sort_order`, `created_at`, `updated_at`
+**Returns:** `SavedRequest[]` with `id`, `collection_id`, `name`, `method`, `url`, `headers`, `params`, `body_type`, `body`, `auth_type`, `auth_config`, `settings`, `sort_order`, `created_at`, `updated_at`
 
 ### `create_request`
 Creates a new request in a collection.
@@ -156,7 +229,8 @@ const req = await invoke<SavedRequest>('create_request', {
   bodyType: 'none',
   body: '',
   authType: 'none',
-  authConfig: '{}'
+  authConfig: '{}',
+  settings: '{}'
 })
 ```
 
@@ -174,7 +248,8 @@ await invoke('update_request', {
   bodyType: 'json',
   body: '{"key":"value"}',
   authType: 'bearer',
-  authConfig: '{"token":"abc"}'
+  authConfig: '{"token":"abc"}',
+  settings: '{"timeout_ms":120000,"connect_timeout_ms":30000,"follow_redirects":true,"verify_ssl":true,"proxy_url":"","use_cookie_jar":false}'
 })
 ```
 
@@ -184,6 +259,63 @@ Deletes a request.
 ```typescript
 await invoke('delete_request', { id: 'uuid' })
 ```
+
+Deleting a request also deletes response examples attached to that request.
+
+### `list_response_examples`
+Returns saved response examples for a request.
+
+```typescript
+const examples = await invoke<ResponseExample[]>('list_response_examples', {
+  requestId: 'request-uuid'
+})
+```
+
+**Parameters:**
+- `requestId: string` — saved request ID
+
+**Returns:** `ResponseExample[]` ordered newest first.
+
+### `create_response_example`
+Saves the current response body, headers, status, timing, and size as an example attached to a saved request.
+
+```typescript
+const example = await invoke<ResponseExample>('create_response_example', {
+  requestId: 'request-uuid',
+  name: '200 OK',
+  response
+})
+```
+
+**Parameters:**
+- `requestId: string` — saved request ID
+- `name: string` — user-facing example name
+- `response: ResponseData` — response payload to persist
+
+**Returns:** `ResponseExample`
+
+### `delete_response_example`
+Deletes a saved response example.
+
+The desktop response panel uses saved response examples for local current-vs-expected comparison. The Compare tab loads the same request-owned examples returned by `list_response_examples` and compares the current response status, formatted body, headers, and size without sending data to any external service.
+
+```typescript
+await invoke('delete_response_example', { id: 'example-uuid' })
+```
+
+### `move_request`
+Moves a request to another collection/folder.
+
+```typescript
+await invoke('move_request', {
+  id: 'request-uuid',
+  collectionId: 'destination-collection-uuid'
+})
+```
+
+**Parameters:**
+- `id: string` — request ID to move
+- `collectionId: string` — destination collection/folder ID
 
 ### `update_environment`
 Updates an environment's variables.
@@ -196,14 +328,23 @@ await invoke('update_environment', {
 ```
 
 ### `export_collection`
-Exports a collection and all its requests to a JSON file.
+Exports a collection, all requests, saved request scripts, request settings, and saved response examples to a 900API JSON file.
 
 ```typescript
 await invoke('export_collection', { collectionId: 'uuid', path: '/path/to/export.json' })
 ```
 
+### `export_openapi`
+Exports a collection and all its requests to an OpenAPI 3.0.3 JSON file.
+
+```typescript
+await invoke('export_openapi', { collectionId: 'uuid', path: '/path/to/openapi.json' })
+```
+
+Exported OpenAPI docs include collection title/description, request paths and methods, query/header parameters, JSON/form/raw request bodies, and supported auth schemes as OpenAPI security schemes. 900API path variables such as `{{id}}` are exported as OpenAPI path variables such as `{id}`.
+
 ### `import_collection_file`
-Imports a collection from a JSON file, creating a new collection with all requests.
+Imports a collection from a 900API JSON file, creating a new collection with all requests and saved response examples.
 
 ```typescript
 const collection = await invoke<Collection>('import_collection_file', { path: '/path/to/import.json' })
@@ -245,6 +386,20 @@ const collection = await invoke<Collection>('import_postman', { path: '/path/to/
 - `path: string` — path to the Postman collection JSON file
 
 **Returns:** `Collection` with all imported requests
+
+### `import_openapi`
+Imports an OpenAPI 3.x or Swagger 2.0 document, creating a new collection with all operations as requests.
+
+```typescript
+const collection = await invoke<Collection>('import_openapi', { path: '/path/to/openapi.yaml' })
+```
+
+**Parameters:**
+- `path: string` — path to an OpenAPI/Swagger JSON, YAML, or YML file
+
+**Returns:** `Collection` with all imported operations
+
+The importer resolves local `$ref` references for common parameters, request bodies, schemas, and security schemes. It imports servers, path variables, query/header parameters, sample JSON/form/raw request bodies, and API key/basic/bearer/OAuth2 auth placeholders. Unsupported OpenAPI extensions are ignored rather than executed.
 
 ### `ws_connect`
 Connects to a WebSocket server. Emits `ws-{id}-state` and `ws-{id}-message` events.
@@ -321,6 +476,8 @@ const response = await invoke<GrpcResponse>('send_grpc', {
 
 **Returns:** `GrpcResponse` with `status`, `grpc_status`, `grpc_message`, `body_hex`, `body_size`, `time_ms`, `headers`, `trailers`
 
+The frontend gRPC client includes a `.proto` helper that parses package, service, RPC, message, and scalar field declarations from pasted proto text. It can populate the `serviceMethod` path and generate `bodyHex` for common scalar protobuf fields. Full server reflection and descriptor-driven nested message editing are not part of this command yet.
+
 ## Authentication
 
 900API supports the following auth types via `AuthConfig`:
@@ -390,7 +547,7 @@ const ports = await invoke<number[]>('mock_list_servers')
 ```
 
 ### `sync_set_config`
-Configures the git sync directory and author info.
+Configures the git sync directory and author info. The config is persisted in local app data and reloaded on desktop startup.
 
 ```typescript
 await invoke('sync_set_config', {
@@ -468,6 +625,8 @@ const result = await invoke<TestRunResult>('run_test_suites', {
 })
 ```
 
+The desktop Test Runner can import saved requests from a collection as suites, including the saved pre-request and test scripts. Manually created and imported suites are persisted in the local WebView storage for the desktop user profile.
+
 ### `generate_collection_docs`
 Generates API documentation from a saved collection.
 
@@ -504,7 +663,7 @@ await invoke('write_text_file', { path: '/path/to/file.md', content: '...' })
 **Returns:** `void`
 
 ### `plugin_list`
-Lists all installed plugins.
+Lists all installed plugin manifests. Plugin manifests, enabled state, and config values are persisted in local app data. Hook and permission fields are metadata only in this release; 900API does not execute plugin hook code at runtime.
 
 ```typescript
 const plugins = await invoke<Plugin[]>('plugin_list')
@@ -525,7 +684,7 @@ const plugin = await invoke<Plugin | null>('plugin_get', { id: 'my-plugin' })
 **Returns:** `Plugin | null`
 
 ### `plugin_install`
-Installs a plugin from a manifest.
+Installs a plugin manifest into the local registry.
 
 ```typescript
 const plugin = await invoke<Plugin>('plugin_install', {
@@ -571,7 +730,7 @@ await invoke('plugin_update_config', { id: 'my-plugin', config: { key: 'value' }
 - `config: Record<string, string>` — configuration key-value pairs
 
 ### `team_list_workspaces`
-Lists all team workspaces.
+Lists all local team workspaces. Workspaces, members, roles, shared collection IDs, and shared environment IDs are persisted in local app data. Activity events are an in-session activity feed.
 
 ```typescript
 const workspaces = await invoke<Workspace[]>('team_list_workspaces')
@@ -669,6 +828,15 @@ const collection = await invoke<Collection>('import_postman', { path: '/path/to/
 
 **Returns:** `Collection`
 
+### `import_openapi`
+Imports an OpenAPI 3.x or Swagger 2.0 JSON/YAML file.
+
+```typescript
+const collection = await invoke<Collection>('import_openapi', { path: '/path/to/openapi.yaml' })
+```
+
+**Returns:** `Collection`
+
 ## Types
 
 ```typescript
@@ -688,6 +856,16 @@ interface RequestConfig {
   body_type: 'none' | 'json' | 'form_data' | 'x_www_form_urlencoded' | 'raw' | 'binary'
   body: string
   auth: AuthConfig
+  settings: RequestSettings
+}
+
+interface RequestSettings {
+  timeout_ms: number
+  connect_timeout_ms: number
+  follow_redirects: boolean
+  verify_ssl: boolean
+  proxy_url: string
+  use_cookie_jar: boolean
 }
 
 interface ResponseData {
@@ -699,10 +877,71 @@ interface ResponseData {
   size_bytes: number
 }
 
+interface ResponseExample {
+  id: string
+  request_id: string
+  name: string
+  status: number
+  status_text: string
+  headers: string
+  body: string
+  time_ms: number
+  size_bytes: number
+  created_at: string
+}
+
+interface GraphQLSchema {
+  query_type: string | null
+  mutation_type: string | null
+  subscription_type: string | null
+  types: GraphQLSchemaType[]
+}
+
+interface GraphQLSchemaType {
+  kind: string
+  name: string
+  description: string | null
+  fields: GraphQLField[]
+  input_fields: GraphQLInputValue[]
+  enum_values: GraphQLEnumValue[]
+  possible_types: GraphQLTypeRef[]
+}
+
+interface GraphQLField {
+  name: string
+  description: string | null
+  args: GraphQLInputValue[]
+  field_type: GraphQLTypeRef
+  is_deprecated: boolean
+  deprecation_reason: string | null
+}
+
+interface GraphQLInputValue {
+  name: string
+  description: string | null
+  value_type: GraphQLTypeRef
+  default_value: string | null
+}
+
+interface GraphQLEnumValue {
+  name: string
+  description: string | null
+  is_deprecated: boolean
+  deprecation_reason: string | null
+}
+
+interface GraphQLTypeRef {
+  kind: string
+  name: string | null
+  of_type: GraphQLTypeRef | null
+}
+
 interface Collection {
   id: string
   name: string
   description: string | null
+  parent_id: string | null
+  sort_order: number
   created_at: string
   updated_at: string
 }
@@ -721,6 +960,8 @@ interface HistoryEntry {
   url: string
   status: number
   time_ms: number
+  size_bytes: number
+  request_snapshot: string  // JSON RequestConfig captured before environment variable resolution
   created_at: string
 }
 
@@ -736,6 +977,7 @@ interface SavedRequest {
   body: string
   auth_type: string
   auth_config: string  // JSON AuthConfig
+  settings: string     // JSON RequestSettings
   sort_order: number
   created_at: string
   updated_at: string

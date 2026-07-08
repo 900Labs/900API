@@ -12,7 +12,7 @@ Current readiness after this pass: **Beta-ready for public open-source release**
 
 Release artifacts were rebuilt successfully:
 - `target/release/bundle/macos/900API.app`
-- `target/release/bundle/dmg/900API_0.1.0_aarch64.dmg`
+- `target/release/bundle/dmg/900API_0.1.1_aarch64.dmg`
 
 ## Fixed Issues
 
@@ -137,22 +137,43 @@ Updated durable docs:
 - `docs/sprints/sprint-18.md`
 
 Corrected stale claims:
-- Removed current-release claims that cURL import and OpenAPI import/export are implemented.
+- Removed earlier current-release claims that cURL import and OpenAPI import/export were implemented before those features existed.
 - Documented current import/export support:
-  - App: 900API native JSON import/export and Postman v2.1 import.
+  - App: 900API native JSON import/export, Postman v2.1 import, OpenAPI 3.x / Swagger 2.0 JSON/YAML import, OpenAPI 3.0.3 JSON export, and REST workbench cURL import for common commands.
   - CLI: Postman v2.1 and cURL export.
-  - OpenAPI and cURL import remain planned.
 - Updated mock server config/state docs for `bind_host` and `cors_permissive`.
 - Updated script docs to reflect the actual `api900.response` API and runtime limits.
 - Removed stale `api900.expect` usage from the in-app script example.
 - Added public-release checks for `npm audit`, `cargo audit`, and `npm run tauri:build`.
+
+2026-07-03 update:
+- REST workbench cURL import is now implemented for common cURL commands copied from browser devtools, docs pages, Postman, or Insomnia.
+- OpenAPI import/export is now implemented in the desktop app for OpenAPI 3.x / Swagger 2.0 JSON/YAML import and OpenAPI 3.0.3 JSON export.
+- History entries now include request snapshots for replay and response size metadata.
+- Code snippets now cover cURL, JavaScript fetch, Python requests, and Go net/http from the active REST request.
+
+2026-07-04 update:
+- The REST response panel now supports formatted/raw body views, sandboxed HTML preview, response body export, saved response examples, and saved-example comparison for status/header/body/size differences.
+- Response examples are stored as request-owned local fixtures, cascade when the parent request is deleted, and are preserved in native 900API JSON import/export.
+- Generated Markdown and HTML docs now include saved response examples while preserving the HTML escaping hardening from the audit remediation.
+- The gRPC view now includes a `.proto` paste/parser helper, RPC path population, scalar protobuf field body generation, UTF-8 body mode, and hex/text response viewing while keeping full reflection as future work.
+- The command palette now searches local actions, saved REST requests, collections, environments, and recent history without introducing cloud search or telemetry.
+- The GraphQL query editor now includes schema-powered query assist for searching root operation fields and inserting starter operations from fetched introspection data.
+
+2026-07-08 release-readiness update:
+- The `quick-xml` RustSec blocker was remediated by updating the transitive `plist` lockfile path to `plist 1.10.0` and `quick-xml 0.41.0`; `cargo audit --no-fetch` now reports only the documented allowed warnings.
+- REST pre-request and test scripts are now editable in the workbench, saved with requests, and executed through the Rust Boa sandbox before and after REST sends.
+- The Test Runner can import saved collection requests as suites, carries saved scripts into those suites, and persists suites locally for the desktop user profile.
+- WebSocket and SSE views now use the shared Tauri wrapper for event listeners so browser preview degrades safely instead of importing Tauri event APIs directly.
+- Git sync configuration, plugin manifests, and team workspaces now persist in local app data files. Plugin hooks remain persisted manifest metadata only; runtime plugin hook execution is intentionally not implemented in this release.
+- Package, Tauri, sidebar, browser fallback, and CLI version strings are aligned to `0.1.1`.
 
 ## Verification
 
 | Command | Result | Notes |
 |---|---|---|
 | `cargo check` | PASS | Backend compiles |
-| `cargo test` | PASS | 89 backend tests passed |
+| `cargo test` | PASS | 107 backend tests passed |
 | `cargo test` in `crates/900api-cli` | PASS | 3 CLI tests passed |
 | `cargo clippy` | PASS | No clippy failures |
 | `npm run check` | PASS | Svelte and TypeScript passed |
@@ -181,7 +202,8 @@ Do not regress these controls:
 - Do not write unescaped user-controlled content into generated HTML.
 - Do not evaluate scripts without Boa runtime limits.
 - Do not bypass `write_text_file` parent canonicalization and symlink refusal.
-- Do not document planned formats such as OpenAPI export or cURL import as implemented.
+- Keep documented import/export format claims in sync with the actual desktop and CLI command surfaces.
+- Keep cURL import documentation scoped to common REST commands, not full shell or every curl flag.
 
 Recommended future work:
 - Add CLI JavaScript test execution only if the CLI can share or safely reuse sandboxed scripting behavior.

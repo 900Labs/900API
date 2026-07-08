@@ -60,12 +60,15 @@ pub async fn connect_sse(
     }
 
     // Emit connecting state
-    let _ = app.emit(&format!("sse-{}-state", id), SseConnectionState {
-        id: id.clone(),
-        url: url.clone(),
-        status: "connecting".to_string(),
-        event_count: 0,
-    });
+    let _ = app.emit(
+        &format!("sse-{}-state", id),
+        SseConnectionState {
+            id: id.clone(),
+            url: url.clone(),
+            status: "connecting".to_string(),
+            event_count: 0,
+        },
+    );
 
     // Build request
     let mut header_map = HeaderMap::new();
@@ -91,12 +94,15 @@ pub async fn connect_sse(
     let response = match client.get(&url).headers(header_map).send().await {
         Ok(r) => r,
         Err(e) => {
-            let _ = app.emit(&format!("sse-{}-state", id), SseConnectionState {
-                id: id.clone(),
-                url: url.clone(),
-                status: "error".to_string(),
-                event_count: 0,
-            });
+            let _ = app.emit(
+                &format!("sse-{}-state", id),
+                SseConnectionState {
+                    id: id.clone(),
+                    url: url.clone(),
+                    status: "error".to_string(),
+                    event_count: 0,
+                },
+            );
             return Err(SseError::Sse(e.to_string()));
         }
     };
@@ -122,12 +128,15 @@ pub async fn connect_sse(
     }
 
     // Emit connected state
-    let _ = app.emit(&format!("sse-{}-state", id), SseConnectionState {
-        id: id.clone(),
-        url: url.clone(),
-        status: "connected".to_string(),
-        event_count: 0,
-    });
+    let _ = app.emit(
+        &format!("sse-{}-state", id),
+        SseConnectionState {
+            id: id.clone(),
+            url: url.clone(),
+            status: "connected".to_string(),
+            event_count: 0,
+        },
+    );
 
     let manager_clone = manager.clone();
     let id_clone = id.clone();
@@ -229,10 +238,7 @@ pub async fn connect_sse(
     Ok(())
 }
 
-pub fn disconnect_sse(
-    manager: &SseManager,
-    id: &str,
-) -> Result<(), SseError> {
+pub fn disconnect_sse(manager: &SseManager, id: &str) -> Result<(), SseError> {
     let mut connections = manager.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(conn) = connections.remove(id) {
         let _ = conn.cancel.send(());
@@ -240,10 +246,7 @@ pub fn disconnect_sse(
     Ok(())
 }
 
-pub fn get_sse_state(
-    manager: &SseManager,
-    id: &str,
-) -> Result<SseConnectionState, SseError> {
+pub fn get_sse_state(manager: &SseManager, id: &str) -> Result<SseConnectionState, SseError> {
     let connections = manager.lock().unwrap_or_else(|e| e.into_inner());
     let conn = connections
         .get(id)

@@ -4,15 +4,21 @@ use serde::{Deserialize, Serialize};
 mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum HttpMethod {
+    #[serde(rename = "GET", alias = "get", alias = "g_e_t")]
     GET,
+    #[serde(rename = "POST", alias = "post", alias = "p_o_s_t")]
     POST,
+    #[serde(rename = "PUT", alias = "put", alias = "p_u_t")]
     PUT,
+    #[serde(rename = "PATCH", alias = "patch", alias = "p_a_t_c_h")]
     PATCH,
+    #[serde(rename = "DELETE", alias = "delete", alias = "d_e_l_e_t_e")]
     DELETE,
+    #[serde(rename = "HEAD", alias = "head", alias = "h_e_a_d")]
     HEAD,
+    #[serde(rename = "OPTIONS", alias = "options", alias = "o_p_t_i_o_n_s")]
     OPTIONS,
 }
 
@@ -84,7 +90,6 @@ pub enum AuthType {
     Hawk,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     #[serde(default)]
@@ -148,6 +153,45 @@ pub struct RequestConfig {
     pub body: String,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub settings: RequestSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestSettings {
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_connect_timeout_ms")]
+    pub connect_timeout_ms: u64,
+    #[serde(default = "default_true")]
+    pub follow_redirects: bool,
+    #[serde(default = "default_true")]
+    pub verify_ssl: bool,
+    #[serde(default)]
+    pub proxy_url: String,
+    #[serde(default)]
+    pub use_cookie_jar: bool,
+}
+
+impl Default for RequestSettings {
+    fn default() -> Self {
+        Self {
+            timeout_ms: default_timeout_ms(),
+            connect_timeout_ms: default_connect_timeout_ms(),
+            follow_redirects: true,
+            verify_ssl: true,
+            proxy_url: String::new(),
+            use_cookie_jar: false,
+        }
+    }
+}
+
+fn default_timeout_ms() -> u64 {
+    120_000
+}
+
+fn default_connect_timeout_ms() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,10 +205,26 @@ pub struct ResponseData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseExample {
+    pub id: String,
+    pub request_id: String,
+    pub name: String,
+    pub status: u16,
+    pub status_text: String,
+    pub headers: String,
+    pub body: String,
+    pub time_ms: u64,
+    pub size_bytes: usize,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub parent_id: Option<String>,
+    pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -185,6 +245,8 @@ pub struct HistoryEntry {
     pub url: String,
     pub status: u16,
     pub time_ms: u64,
+    pub size_bytes: usize,
+    pub request_snapshot: String,
     pub created_at: String,
 }
 
@@ -203,6 +265,7 @@ pub struct SavedRequest {
     pub auth_config: String,
     pub pre_request_script: String,
     pub test_script: String,
+    pub settings: String,
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
@@ -231,4 +294,59 @@ pub struct GraphQLRequest {
 pub struct GraphQLResponse {
     pub data: Option<serde_json::Value>,
     pub errors: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLSchema {
+    pub query_type: Option<String>,
+    pub mutation_type: Option<String>,
+    pub subscription_type: Option<String>,
+    pub types: Vec<GraphQLSchemaType>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLSchemaType {
+    pub kind: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub fields: Vec<GraphQLField>,
+    pub input_fields: Vec<GraphQLInputValue>,
+    pub enum_values: Vec<GraphQLEnumValue>,
+    pub possible_types: Vec<GraphQLTypeRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLField {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub args: Vec<GraphQLInputValue>,
+    pub field_type: GraphQLTypeRef,
+    #[serde(default)]
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLInputValue {
+    pub name: String,
+    pub description: Option<String>,
+    pub value_type: GraphQLTypeRef,
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLEnumValue {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphQLTypeRef {
+    pub kind: String,
+    pub name: Option<String>,
+    pub of_type: Option<Box<GraphQLTypeRef>>,
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { Puzzle, Plus, Trash2, Power, PowerOff, Shield, Code } from '@lucide/svelte'
 
   type PluginPermission = 'network' | 'file_system' | 'environment' | 'clipboard' | 'notifications'
@@ -135,6 +135,9 @@
   {#if success}
     <div class="mb-4 rounded-md bg-success/10 p-3 text-sm text-success">{success}</div>
   {/if}
+  <div class="mb-4 rounded-md border border-border bg-surface p-3 text-xs text-text-muted">
+    Plugins are a local, persisted manifest registry. Hook and permission labels are stored metadata for review and planning; this release does not execute plugin hook code in request or test paths.
+  </div>
 
   {#if showInstallForm}
     <div class="mb-4 rounded-lg border border-border bg-surface p-4">
@@ -198,7 +201,7 @@
                   {#each plugin.manifest.hooks as hook}
                     <span class="flex items-center gap-1 rounded bg-bg px-1.5 py-0.5 text-xs text-text-muted">
                       <Code class="h-3 w-3" />
-                      {hookLabels[hook]}
+                      {hookLabels[hook]} metadata
                     </span>
                   {/each}
                 </div>

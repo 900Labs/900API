@@ -1,8 +1,8 @@
 use crate::models::{AuthConfig, AuthType};
+use base64::{engine::general_purpose, Engine as _};
+use hmac::{Hmac, Mac};
 use reqwest::header::{HeaderMap, HeaderValue};
 use sha2::{Digest, Sha256};
-use hmac::{Hmac, Mac};
-use base64::{Engine as _, engine::general_purpose};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -57,15 +57,9 @@ pub fn apply_auth(
                 request
             }
         }
-        AuthType::OAuth1 => {
-            apply_oauth1(request, auth, url, method, body)
-        }
-        AuthType::AwsSigV4 => {
-            apply_aws_sig_v4(request, auth, url, method, body)
-        }
-        AuthType::Hawk => {
-            apply_hawk(request, auth, url, method)
-        }
+        AuthType::OAuth1 => apply_oauth1(request, auth, url, method, body),
+        AuthType::AwsSigV4 => apply_aws_sig_v4(request, auth, url, method, body),
+        AuthType::Hawk => apply_hawk(request, auth, url, method),
     }
 }
 
@@ -84,8 +78,14 @@ fn apply_oauth1(
     let nonce = uuid::Uuid::new_v4().to_string();
 
     let mut params: Vec<(String, String)> = vec![
-        ("oauth_consumer_key".to_string(), auth.oauth1_consumer_key.clone()),
-        ("oauth_signature_method".to_string(), "HMAC-SHA256".to_string()),
+        (
+            "oauth_consumer_key".to_string(),
+            auth.oauth1_consumer_key.clone(),
+        ),
+        (
+            "oauth_signature_method".to_string(),
+            "HMAC-SHA256".to_string(),
+        ),
         ("oauth_timestamp".to_string(), timestamp),
         ("oauth_nonce".to_string(), nonce),
         ("oauth_version".to_string(), "1.0".to_string()),
@@ -150,8 +150,16 @@ fn apply_aws_sig_v4(
         return request;
     }
 
-    let region = if auth.aws_region.is_empty() { "us-east-1" } else { &auth.aws_region };
-    let service = if auth.aws_service.is_empty() { "execute-api" } else { &auth.aws_service };
+    let region = if auth.aws_region.is_empty() {
+        "us-east-1"
+    } else {
+        &auth.aws_region
+    };
+    let service = if auth.aws_service.is_empty() {
+        "execute-api"
+    } else {
+        &auth.aws_service
+    };
 
     let now = chrono::Utc::now();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -188,13 +196,14 @@ fn apply_aws_sig_v4(
     let credential_scope = format!("{}/{}/{}/aws4_request", date_stamp, region, service);
     let string_to_sign = format!(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}",
-        amz_date,
-        credential_scope,
-        canonical_hash
+        amz_date, credential_scope, canonical_hash
     );
 
     // Signing key
-    let k_date = hmac_sign(format!("AWS4{}", auth.aws_secret_access_key).as_bytes(), date_stamp.as_bytes());
+    let k_date = hmac_sign(
+        format!("AWS4{}", auth.aws_secret_access_key).as_bytes(),
+        date_stamp.as_bytes(),
+    );
     let k_region = hmac_sign(&k_date, region.as_bytes());
     let k_service = hmac_sign(&k_region, service.as_bytes());
     let k_signing = hmac_sign(&k_service, b"aws4_request");
@@ -241,7 +250,13 @@ fn apply_hawk(
     };
 
     let host = parsed_url.host_str().unwrap_or("");
-    let port = parsed_url.port().unwrap_or(if parsed_url.scheme() == "https" { 443 } else { 80 });
+    let port = parsed_url
+        .port()
+        .unwrap_or(if parsed_url.scheme() == "https" {
+            443
+        } else {
+            80
+        });
     let path = parsed_url.path();
 
     let timestamp = chrono::Utc::now().timestamp();

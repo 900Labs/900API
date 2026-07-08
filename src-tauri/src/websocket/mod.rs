@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 use thiserror::Error;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[derive(Debug, Error)]
 pub enum WsError {
@@ -59,23 +59,29 @@ pub async fn connect_websocket(
     }
 
     // Emit connecting state
-    let _ = app.emit(&format!("ws-{}-state", id), WsConnectionState {
-        id: id.clone(),
-        url: url.clone(),
-        status: "connecting".to_string(),
-        messages: vec![],
-    });
+    let _ = app.emit(
+        &format!("ws-{}-state", id),
+        WsConnectionState {
+            id: id.clone(),
+            url: url.clone(),
+            status: "connecting".to_string(),
+            messages: vec![],
+        },
+    );
 
     // Connect
     let (ws_stream, _) = match connect_async(&url).await {
         Ok(s) => s,
         Err(e) => {
-            let _ = app.emit(&format!("ws-{}-state", id), WsConnectionState {
-                id: id.clone(),
-                url: url.clone(),
-                status: "error".to_string(),
-                messages: vec![],
-            });
+            let _ = app.emit(
+                &format!("ws-{}-state", id),
+                WsConnectionState {
+                    id: id.clone(),
+                    url: url.clone(),
+                    status: "error".to_string(),
+                    messages: vec![],
+                },
+            );
             return Err(WsError::Ws(e.to_string()));
         }
     };
@@ -103,12 +109,15 @@ pub async fn connect_websocket(
     }
 
     // Emit connected state
-    let _ = app.emit(&format!("ws-{}-state", id), WsConnectionState {
-        id: id.clone(),
-        url: url.clone(),
-        status: "connected".to_string(),
-        messages: vec![],
-    });
+    let _ = app.emit(
+        &format!("ws-{}-state", id),
+        WsConnectionState {
+            id: id.clone(),
+            url: url.clone(),
+            status: "connected".to_string(),
+            messages: vec![],
+        },
+    );
 
     let manager_clone = manager.clone();
     let id_clone = id.clone();
@@ -213,10 +222,7 @@ pub fn send_websocket_message(
         .map_err(|e| WsError::Ws(e.to_string()))
 }
 
-pub fn disconnect_websocket(
-    manager: &WsManager,
-    id: &str,
-) -> Result<(), WsError> {
+pub fn disconnect_websocket(manager: &WsManager, id: &str) -> Result<(), WsError> {
     let mut connections = manager.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(conn) = connections.remove(id) {
         // Dropping the tx will close the send task
@@ -225,10 +231,7 @@ pub fn disconnect_websocket(
     Ok(())
 }
 
-pub fn get_websocket_state(
-    manager: &WsManager,
-    id: &str,
-) -> Result<WsConnectionState, WsError> {
+pub fn get_websocket_state(manager: &WsManager, id: &str) -> Result<WsConnectionState, WsError> {
     let connections = manager.lock().unwrap_or_else(|e| e.into_inner());
     let conn = connections
         .get(id)

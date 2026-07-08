@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { open } from '@tauri-apps/plugin-dialog'
   import { GitBranch, GitCommit, GitPullRequest, Upload, Download, FolderOpen, RefreshCw, FileJson } from '@lucide/svelte'
 

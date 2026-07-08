@@ -27,7 +27,8 @@ Before changing repository visibility or publishing a release, verify:
 - [ ] `./scripts/verify-public-release.sh` passes
 - [ ] `npm audit --audit-level=high` reports zero high or critical vulnerabilities
 - [ ] `cargo audit` has no blocking vulnerabilities beyond documented allowed transitive warnings
-- [ ] `npm run tauri:build` produces the app bundle and installer artifact
+- [ ] `npm run tauri:build` produces the platform app bundle
+- [ ] On macOS, `npm run tauri:build:dmg` produces the release DMG without Finder/AppleScript automation
 - [ ] No compiler warnings (Rust)
 - [ ] No TypeScript errors or warnings
 - [ ] No `unwrap()` or `expect()` in production Rust code

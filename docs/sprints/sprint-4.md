@@ -31,13 +31,15 @@
 - GraphQL always uses POST (standard approach, supports queries and mutations)
 - Variables sent as JSON string, parsed in Rust — frontend doesn't need to validate
 - Auth limited to None and Bearer in GraphQL UI (most common for GraphQL APIs)
-- Schema introspection and auto-complete deferred to post-MVP (requires GraphQL schema parsing)
+- At sprint close, schema introspection and auto-complete were deferred to post-MVP (requires GraphQL schema parsing)
 
 ## Known Issues
-- No schema introspection or explorer (post-MVP)
+- At sprint close, no schema introspection or explorer (post-MVP)
 - No query auto-complete (post-MVP)
 - GraphQL requests not saveable to collections yet (Sprint 6 or post-MVP)
 - No syntax highlighting in query editor (post-MVP)
+
+Later remediation note: schema introspection, schema-powered query assist, and the schema explorer were implemented after this sprint. Inline cursor-aware editor autocomplete remains planned.
 
 ## Next Sprint
 - Sprint 5: Test Scripts & Pre-Request Scripts — sandboxed JS runtime, assertion library

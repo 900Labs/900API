@@ -2,7 +2,10 @@ use crate::db::Database;
 use crate::export;
 use crate::http;
 use crate::import;
-use crate::models::{AuthConfig, Collection, Environment, EnvironmentVariable, HistoryEntry, KeyValue, RequestConfig, ResponseData, SavedRequest};
+use crate::models::{
+    AuthConfig, Collection, Environment, EnvironmentVariable, GraphQLSchema, HistoryEntry,
+    KeyValue, RequestConfig, ResponseData, ResponseExample, SavedRequest,
+};
 use crate::scripting::ScriptOutput;
 use crate::AppState;
 
@@ -17,6 +20,8 @@ pub async fn send_request(
     config: RequestConfig,
     environment_variables: Option<Vec<EnvironmentVariable>>,
 ) -> Result<ResponseData, String> {
+    let request_snapshot = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
+
     // Resolve environment variables if provided
     let resolved_config = if let Some(vars) = &environment_variables {
         let url = http::variables::resolve_variables(&config.url, vars);
@@ -45,12 +50,13 @@ pub async fn send_request(
 
     // Log to history
     if let Some(ref db) = *state.db.lock().unwrap_or_else(|e| e.into_inner()) {
-        let _ = db.add_history(
+        let _ = db.add_history_with_snapshot(
             &method_str,
             &url_str,
             response.status,
             response.time_ms,
             response.size_bytes,
+            &request_snapshot,
         );
     }
 
@@ -97,6 +103,19 @@ pub async fn send_graphql(
     Ok(response)
 }
 
+#[tauri::command]
+pub async fn introspect_graphql_schema(
+    url: String,
+    headers: Vec<KeyValue>,
+    auth: AuthConfig,
+    environment_variables: Option<Vec<EnvironmentVariable>>,
+) -> Result<GraphQLSchema, String> {
+    let env_vars = environment_variables.unwrap_or_default();
+    http::introspect_graphql_schema(&url, &headers, &auth, &env_vars)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 fn with_db<F, T>(state: &tauri::State<'_, AppState>, f: F) -> Result<T, String>
 where
     F: FnOnce(&Database) -> Result<T, crate::db::DbError>,
@@ -118,8 +137,32 @@ pub fn create_collection(
     state: tauri::State<'_, AppState>,
     name: String,
     description: Option<String>,
+    parent_id: Option<String>,
 ) -> Result<Collection, String> {
-    with_db(&state, |db| db.create_collection(&name, description.as_deref()))
+    with_db(&state, |db| {
+        db.create_collection_with_parent(&name, description.as_deref(), parent_id.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn update_collection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    with_db(&state, |db| {
+        db.update_collection(&id, &name, description.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn move_collection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    parent_id: Option<String>,
+) -> Result<(), String> {
+    with_db(&state, |db| db.move_collection(&id, parent_id.as_deref()))
 }
 
 #[tauri::command]
@@ -182,13 +225,23 @@ pub fn create_request(
     auth_config: String,
     pre_request_script: Option<String>,
     test_script: Option<String>,
+    settings: Option<String>,
 ) -> Result<SavedRequest, String> {
     with_db(&state, |db| {
-        db.create_request(
-            &collection_id, &name, &method, &url, &headers, &params,
-            &body_type, &body, &auth_type, &auth_config,
+        db.create_request_with_settings(
+            &collection_id,
+            &name,
+            &method,
+            &url,
+            &headers,
+            &params,
+            &body_type,
+            &body,
+            &auth_type,
+            &auth_config,
             pre_request_script.as_deref().unwrap_or(""),
             test_script.as_deref().unwrap_or(""),
+            settings.as_deref().unwrap_or("{}"),
         )
     })
 }
@@ -209,13 +262,23 @@ pub fn update_request(
     auth_config: String,
     pre_request_script: Option<String>,
     test_script: Option<String>,
+    settings: Option<String>,
 ) -> Result<(), String> {
     with_db(&state, |db| {
-        db.update_request(
-            &id, &name, &method, &url, &headers, &params,
-            &body_type, &body, &auth_type, &auth_config,
+        db.update_request_with_settings(
+            &id,
+            &name,
+            &method,
+            &url,
+            &headers,
+            &params,
+            &body_type,
+            &body,
+            &auth_type,
+            &auth_config,
             pre_request_script.as_deref().unwrap_or(""),
             test_script.as_deref().unwrap_or(""),
+            settings.as_deref().unwrap_or("{}"),
         )
     })
 }
@@ -223,6 +286,53 @@ pub fn update_request(
 #[tauri::command]
 pub fn delete_request(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     with_db(&state, |db| db.delete_request(&id))
+}
+
+#[tauri::command]
+pub fn list_response_examples(
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+) -> Result<Vec<ResponseExample>, String> {
+    with_db(&state, |db| db.list_response_examples(&request_id))
+}
+
+#[tauri::command]
+pub fn create_response_example(
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+    name: String,
+    response: ResponseData,
+) -> Result<ResponseExample, String> {
+    let headers = serde_json::to_string(&response.headers).map_err(|e| e.to_string())?;
+    with_db(&state, |db| {
+        db.create_response_example(
+            &request_id,
+            &name,
+            response.status,
+            &response.status_text,
+            &headers,
+            &response.body,
+            response.time_ms,
+            response.size_bytes,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn delete_response_example(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    with_db(&state, |db| db.delete_response_example(&id))
+}
+
+#[tauri::command]
+pub fn move_request(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    collection_id: String,
+) -> Result<(), String> {
+    with_db(&state, |db| db.move_request(&id, &collection_id))
 }
 
 #[tauri::command]
@@ -241,13 +351,40 @@ pub fn export_collection(
     path: String,
 ) -> Result<(), String> {
     with_db(&state, |db| {
+        let mut response_examples = std::collections::HashMap::new();
         let collections = db.list_collections()?;
         let collection = collections
             .into_iter()
             .find(|c| c.id == collection_id)
             .ok_or_else(|| crate::db::DbError::NotFound(format!("Collection {}", collection_id)))?;
         let requests = db.list_requests(&collection_id)?;
-        export::export_collection(&collection, &requests, std::path::Path::new(&path))
+        for request in &requests {
+            response_examples.insert(request.id.clone(), db.list_response_examples(&request.id)?);
+        }
+        export::export_collection_with_examples(
+            &collection,
+            &requests,
+            &response_examples,
+            std::path::Path::new(&path),
+        )
+        .map_err(|e| crate::db::DbError::NotFound(e.to_string()))
+    })
+}
+
+#[tauri::command]
+pub fn export_openapi(
+    state: tauri::State<'_, AppState>,
+    collection_id: String,
+    path: String,
+) -> Result<(), String> {
+    with_db(&state, |db| {
+        let collections = db.list_collections()?;
+        let collection = collections
+            .into_iter()
+            .find(|c| c.id == collection_id)
+            .ok_or_else(|| crate::db::DbError::NotFound(format!("Collection {}", collection_id)))?;
+        let requests = db.list_requests(&collection_id)?;
+        export::export_openapi_collection(&collection, &requests, std::path::Path::new(&path))
             .map_err(|e| crate::db::DbError::NotFound(e.to_string()))
     })
 }
@@ -264,7 +401,7 @@ pub fn import_collection_file(
         let collection = db.create_collection(&imported.name, imported.description.as_deref())?;
 
         for req in &imported.requests {
-            db.create_request(
+            let saved_request = db.create_request_with_settings(
                 &collection.id,
                 &req.name,
                 &req.method,
@@ -275,9 +412,26 @@ pub fn import_collection_file(
                 &req.body,
                 &req.auth_type,
                 &req.auth_config,
-                "",
-                "",
+                &req.pre_request_script,
+                &req.test_script,
+                if req.settings.trim().is_empty() {
+                    "{}"
+                } else {
+                    &req.settings
+                },
             )?;
+            for example in &req.response_examples {
+                db.create_response_example(
+                    &saved_request.id,
+                    &example.name,
+                    example.status,
+                    &example.status_text,
+                    &example.headers,
+                    &example.body,
+                    example.time_ms,
+                    example.size_bytes,
+                )?;
+            }
         }
 
         Ok(collection)
@@ -318,12 +472,8 @@ pub fn ws_send(
 }
 
 #[tauri::command]
-pub fn ws_disconnect(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    crate::websocket::disconnect_websocket(&state.ws_manager, &id)
-        .map_err(|e| e.to_string())
+pub fn ws_disconnect(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    crate::websocket::disconnect_websocket(&state.ws_manager, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -331,8 +481,7 @@ pub fn ws_get_state(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<crate::websocket::WsConnectionState, String> {
-    crate::websocket::get_websocket_state(&state.ws_manager, &id)
-        .map_err(|e| e.to_string())
+    crate::websocket::get_websocket_state(&state.ws_manager, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -349,12 +498,8 @@ pub async fn sse_connect(
 }
 
 #[tauri::command]
-pub fn sse_disconnect(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    crate::sse::disconnect_sse(&state.sse_manager, &id)
-        .map_err(|e| e.to_string())
+pub fn sse_disconnect(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    crate::sse::disconnect_sse(&state.sse_manager, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -362,8 +507,7 @@ pub fn sse_get_state(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<crate::sse::SseConnectionState, String> {
-    crate::sse::get_sse_state(&state.sse_manager, &id)
-        .map_err(|e| e.to_string())
+    crate::sse::get_sse_state(&state.sse_manager, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -390,12 +534,8 @@ pub async fn mock_start(
 }
 
 #[tauri::command]
-pub fn mock_stop(
-    state: tauri::State<'_, AppState>,
-    port: u16,
-) -> Result<(), String> {
-    crate::mock::stop_mock_server(&state.mock_manager, port)
-        .map_err(|e| e.to_string())
+pub fn mock_stop(state: tauri::State<'_, AppState>, port: u16) -> Result<(), String> {
+    crate::mock::stop_mock_server(&state.mock_manager, port).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -403,14 +543,11 @@ pub fn mock_get_state(
     state: tauri::State<'_, AppState>,
     port: u16,
 ) -> Result<crate::mock::MockServerState, String> {
-    crate::mock::get_mock_server_state(&state.mock_manager, port)
-        .map_err(|e| e.to_string())
+    crate::mock::get_mock_server_state(&state.mock_manager, port).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn mock_list_servers(
-    state: tauri::State<'_, AppState>,
-) -> Vec<u16> {
+pub fn mock_list_servers(state: tauri::State<'_, AppState>) -> Vec<u16> {
     crate::mock::list_mock_servers(&state.mock_manager)
 }
 
@@ -419,14 +556,11 @@ pub fn sync_set_config(
     state: tauri::State<'_, AppState>,
     config: crate::sync::SyncConfig,
 ) -> Result<(), String> {
-    state.sync_manager.set_config(config);
-    Ok(())
+    state.sync_manager.set_config(config).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_get_config(
-    state: tauri::State<'_, AppState>,
-) -> Option<crate::sync::SyncConfig> {
+pub fn sync_get_config(state: tauri::State<'_, AppState>) -> Option<crate::sync::SyncConfig> {
     state.sync_manager.get_config()
 }
 
@@ -454,16 +588,15 @@ pub fn sync_import_collection(
 }
 
 #[tauri::command]
-pub fn sync_list_collections(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    state.sync_manager.list_collections().map_err(|e| e.to_string())
+pub fn sync_list_collections(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    state
+        .sync_manager
+        .list_collections()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_git_init(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub fn sync_git_init(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.sync_manager.git_init().map_err(|e| e.to_string())
 }
 
@@ -475,24 +608,20 @@ pub fn sync_git_status(
 }
 
 #[tauri::command]
-pub fn sync_git_commit(
-    state: tauri::State<'_, AppState>,
-    message: String,
-) -> Result<(), String> {
-    state.sync_manager.git_commit(&message).map_err(|e| e.to_string())
+pub fn sync_git_commit(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
+    state
+        .sync_manager
+        .git_commit(&message)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_git_pull(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub fn sync_git_pull(state: tauri::State<'_, AppState>) -> Result<String, String> {
     state.sync_manager.git_pull().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_git_push(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub fn sync_git_push(state: tauri::State<'_, AppState>) -> Result<String, String> {
     state.sync_manager.git_push().map_err(|e| e.to_string())
 }
 
@@ -521,8 +650,7 @@ pub fn generate_collection_docs(
 ) -> Result<crate::docs::ApiDoc, String> {
     let db_lock = state.db.lock().unwrap_or_else(|e| e.into_inner());
     let db = db_lock.as_ref().ok_or("Database not initialized")?;
-    crate::docs::generate_collection_docs(db, &collection_id)
-        .map_err(|e| e.to_string())
+    crate::docs::generate_collection_docs(db, &collection_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -531,29 +659,21 @@ pub fn generate_all_docs(
 ) -> Result<Vec<crate::docs::ApiDoc>, String> {
     let db_lock = state.db.lock().unwrap_or_else(|e| e.into_inner());
     let db = db_lock.as_ref().ok_or("Database not initialized")?;
-    crate::docs::generate_all_docs(db)
-        .map_err(|e| e.to_string())
+    crate::docs::generate_all_docs(db).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn docs_to_markdown(
-    doc: crate::docs::ApiDoc,
-) -> String {
+pub fn docs_to_markdown(doc: crate::docs::ApiDoc) -> String {
     crate::docs::docs_to_markdown(&doc)
 }
 
 #[tauri::command]
-pub fn docs_to_html(
-    doc: crate::docs::ApiDoc,
-) -> String {
+pub fn docs_to_html(doc: crate::docs::ApiDoc) -> String {
     crate::docs::docs_to_html(&doc)
 }
 
 #[tauri::command]
-pub fn write_text_file(
-    path: String,
-    content: String,
-) -> Result<(), String> {
+pub fn write_text_file(path: String, content: String) -> Result<(), String> {
     let target = std::path::Path::new(&path);
 
     if target
@@ -572,15 +692,15 @@ pub fn write_text_file(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
-    let parent = parent
-        .canonicalize()
-        .map_err(|e| format!("Parent directory does not exist or is not accessible: {}", e))?;
+    let parent = parent.canonicalize().map_err(|e| {
+        format!(
+            "Parent directory does not exist or is not accessible: {}",
+            e
+        )
+    })?;
 
     if !parent.starts_with(&home) {
-        return Err(format!(
-            "Path '{}' is outside the allowed directory",
-            path
-        ));
+        return Err(format!("Path '{}' is outside the allowed directory", path));
     }
 
     let file_name = target
@@ -598,17 +718,12 @@ pub fn write_text_file(
 }
 
 #[tauri::command]
-pub fn plugin_list(
-    state: tauri::State<'_, AppState>,
-) -> Vec<crate::plugins::Plugin> {
+pub fn plugin_list(state: tauri::State<'_, AppState>) -> Vec<crate::plugins::Plugin> {
     state.plugin_manager.list_plugins()
 }
 
 #[tauri::command]
-pub fn plugin_get(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Option<crate::plugins::Plugin> {
+pub fn plugin_get(state: tauri::State<'_, AppState>, id: String) -> Option<crate::plugins::Plugin> {
     state.plugin_manager.get_plugin(&id)
 }
 
@@ -617,31 +732,34 @@ pub fn plugin_install(
     state: tauri::State<'_, AppState>,
     manifest: crate::plugins::PluginManifest,
 ) -> Result<crate::plugins::Plugin, String> {
-    state.plugin_manager.install_plugin(manifest).map_err(|e| e.to_string())
+    state
+        .plugin_manager
+        .install_plugin(manifest)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn plugin_uninstall(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    state.plugin_manager.uninstall_plugin(&id).map_err(|e| e.to_string())
+pub fn plugin_uninstall(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state
+        .plugin_manager
+        .uninstall_plugin(&id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn plugin_enable(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    state.plugin_manager.enable_plugin(&id).map_err(|e| e.to_string())
+pub fn plugin_enable(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state
+        .plugin_manager
+        .enable_plugin(&id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn plugin_disable(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    state.plugin_manager.disable_plugin(&id).map_err(|e| e.to_string())
+pub fn plugin_disable(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state
+        .plugin_manager
+        .disable_plugin(&id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -650,13 +768,14 @@ pub fn plugin_update_config(
     id: String,
     config: std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    state.plugin_manager.update_plugin_config(&id, config).map_err(|e| e.to_string())
+    state
+        .plugin_manager
+        .update_plugin_config(&id, config)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn team_list_workspaces(
-    state: tauri::State<'_, AppState>,
-) -> Vec<crate::team::Workspace> {
+pub fn team_list_workspaces(state: tauri::State<'_, AppState>) -> Vec<crate::team::Workspace> {
     state.team_manager.list_workspaces()
 }
 
@@ -675,15 +794,18 @@ pub fn team_create_workspace(
     description: Option<String>,
     owner: crate::team::TeamMember,
 ) -> Result<crate::team::Workspace, String> {
-    state.team_manager.create_workspace(&name, description.as_deref(), owner).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .create_workspace(&name, description.as_deref(), owner)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn team_delete_workspace(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
-    state.team_manager.delete_workspace(&id).map_err(|e| e.to_string())
+pub fn team_delete_workspace(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state
+        .team_manager
+        .delete_workspace(&id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -692,7 +814,10 @@ pub fn team_add_member(
     workspace_id: String,
     member: crate::team::TeamMember,
 ) -> Result<(), String> {
-    state.team_manager.add_member(&workspace_id, member).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .add_member(&workspace_id, member)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -701,7 +826,10 @@ pub fn team_remove_member(
     workspace_id: String,
     member_id: String,
 ) -> Result<(), String> {
-    state.team_manager.remove_member(&workspace_id, &member_id).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .remove_member(&workspace_id, &member_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -711,7 +839,10 @@ pub fn team_update_member_role(
     member_id: String,
     role: crate::team::TeamRole,
 ) -> Result<(), String> {
-    state.team_manager.update_member_role(&workspace_id, &member_id, role).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .update_member_role(&workspace_id, &member_id, role)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -720,7 +851,9 @@ pub fn team_get_activity(
     workspace_id: String,
     limit: Option<usize>,
 ) -> Vec<crate::team::ActivityEvent> {
-    state.team_manager.get_activity(&workspace_id, limit.unwrap_or(50))
+    state
+        .team_manager
+        .get_activity(&workspace_id, limit.unwrap_or(50))
 }
 
 #[tauri::command]
@@ -729,7 +862,10 @@ pub fn team_share_collection(
     workspace_id: String,
     collection_id: String,
 ) -> Result<(), String> {
-    state.team_manager.share_collection(&workspace_id, &collection_id).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .share_collection(&workspace_id, &collection_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -738,7 +874,10 @@ pub fn team_unshare_collection(
     workspace_id: String,
     collection_id: String,
 ) -> Result<(), String> {
-    state.team_manager.unshare_collection(&workspace_id, &collection_id).map_err(|e| e.to_string())
+    state
+        .team_manager
+        .unshare_collection(&workspace_id, &collection_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -747,13 +886,14 @@ pub fn import_postman(
     path: String,
 ) -> Result<Collection, String> {
     with_db(&state, |db| {
-        let (name, description, requests) = import::import_postman_collection(std::path::Path::new(&path))
-            .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
+        let (name, description, requests) =
+            import::import_postman_collection(std::path::Path::new(&path))
+                .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
 
         let collection = db.create_collection(&name, description.as_deref())?;
 
         for req in &requests {
-            db.create_request(
+            db.create_request_with_settings(
                 &collection.id,
                 &req.name,
                 &req.method,
@@ -766,6 +906,41 @@ pub fn import_postman(
                 &req.auth_config,
                 "",
                 "",
+                "{}",
+            )?;
+        }
+
+        Ok(collection)
+    })
+}
+
+#[tauri::command]
+pub fn import_openapi(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<Collection, String> {
+    with_db(&state, |db| {
+        let (name, description, requests) =
+            import::import_openapi_collection(std::path::Path::new(&path))
+                .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
+
+        let collection = db.create_collection(&name, description.as_deref())?;
+
+        for req in &requests {
+            db.create_request_with_settings(
+                &collection.id,
+                &req.name,
+                &req.method,
+                &req.url,
+                &req.headers,
+                &req.params,
+                &req.body_type,
+                &req.body,
+                &req.auth_type,
+                &req.auth_config,
+                "",
+                "",
+                "{}",
             )?;
         }
 

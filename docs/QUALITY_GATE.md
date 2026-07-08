@@ -48,12 +48,14 @@ Run these before publishing binaries or making a release public:
 npm audit --audit-level=high
 cargo audit
 npm run tauri:build
+npm run tauri:build:dmg # macOS release artifact only
 ```
 
 Current dependency-audit policy:
 - `npm audit --audit-level=high` must report zero high or critical vulnerabilities.
 - `cargo audit` must report no blocking vulnerabilities. Existing allowed warnings are transitive RustSec warnings from Tauri/Wry's Linux GTK stack, Boa's `paste` dependency, and Tauri URL pattern dependencies.
-- `npm run tauri:build` must produce the platform app bundle and installer artifact.
+- `npm run tauri:build` must produce the platform app bundle.
+- On macOS, `npm run tauri:build:dmg` must produce the release DMG. This project uses `scripts/build-macos-dmg.sh` for deterministic DMG creation because Tauri's native Finder-styled DMG path can hang in non-interactive or sandboxed environments.
 
 ## Coding Standards
 

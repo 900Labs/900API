@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { Settings, Info, Zap, Database, Code, Globe } from '@lucide/svelte'
   import { t, locale, locales, type Locale } from '../../lib/i18n'
 
-  let appVersion = $state('0.1.0')
+  let appVersion = $state('0.1.1')
 
   async function loadVersion() {
     try {

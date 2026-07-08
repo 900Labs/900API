@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { Plus, Trash2, Save } from '@lucide/svelte'
   import { activeEnvironmentStore } from '../../lib/stores'
 

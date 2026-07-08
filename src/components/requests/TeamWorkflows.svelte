@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { Users, Plus, Trash2, UserPlus, Crown, Shield, Edit3, Eye, Activity, Share2 } from '@lucide/svelte'
 
   type TeamRole = 'owner' | 'admin' | 'editor' | 'viewer'

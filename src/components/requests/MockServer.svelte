@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
+  import { invoke } from '../../lib/tauri'
   import { Play, Square, Plus, Trash2, Server } from '@lucide/svelte'
 
   type KeyValue = { key: string; value: string; enabled: boolean }

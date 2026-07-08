@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Send, FolderTree, Settings, FileText, FlaskConical, BookOpen, Network, Radio, Download, Cable, Server, GitBranch, Globe, Puzzle, Users } from '@lucide/svelte'
   import { t, locale, locales, type Locale } from '../lib/i18n'
+  import { invoke } from '../lib/tauri'
 
   type ViewName = 'requests' | 'graphql' | 'websocket' | 'sse' | 'grpc' | 'mock' | 'sync' | 'collections' | 'environments' | 'tests' | 'docs' | 'plugins' | 'team' | 'settings'
 
@@ -30,6 +31,11 @@
   ]
 
   let showLocaleMenu = $state(false)
+  let appVersion = $state('0.1.1')
+
+  invoke<string>('get_app_version')
+    .then((version) => (appVersion = version))
+    .catch(() => {})
 </script>
 
 <nav class="flex w-14 flex-col items-center gap-1 border-r border-border bg-surface py-3 lg:w-56">
@@ -66,6 +72,6 @@
         <span class="hidden lg:inline">{locales.find((l) => l.value === $locale)?.label ?? 'English'}</span>
       </button>
     </div>
-    <span class="hidden text-center text-xs text-text-muted lg:block">900API v0.1.0</span>
+    <span class="hidden text-center text-xs text-text-muted lg:block">900API v{appVersion}</span>
   </div>
 </nav>
