@@ -31,7 +31,7 @@
   ]
 
   let showLocaleMenu = $state(false)
-  let appVersion = $state('0.2.0')
+  let appVersion = $state('0.2.1')
 
   invoke<string>('get_app_version')
     .then((version) => (appVersion = version))

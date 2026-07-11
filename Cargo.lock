@@ -117,7 +117,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "api900"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "api900-core",
  "axum",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "api900-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "api900-core",
  "clap",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "api900-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "boa_engine",
  "serde",

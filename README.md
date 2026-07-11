@@ -6,9 +6,7 @@ No account is required. There is no subscription, telemetry, hosted workspace, o
 
 ## Why 900API Exists
 
-Technology shouldn't have a zip code.
-
-[900 Labs](https://www.900labs.com) builds enterprise-grade open source tools for more than 900 million people in developing economies who are priced out of modern business software. 900API is part of [900 Open](https://www.900labs.com/impact), an initiative based on four practical principles:
+[900 Labs](https://www.900labs.com) builds open source tools for people and organizations constrained by software cost, bandwidth, or older hardware. 900API is part of [900 Open](https://www.900labs.com/impact), guided by four practical principles:
 
 - Free forever under a permissive license
 - Quality that can support real work
@@ -33,11 +31,13 @@ Technology shouldn't have a zip code.
 - Export portable 900API JSON or OpenAPI 3.0.3 JSON
 - Keep portable collection files in a Git repository without a hosted sync account
 
-Multipart file parts and binary request bodies are not supported in 0.2.0. This avoids storing machine-specific file paths in portable collection files.
+Multipart file parts and binary request bodies are not supported in 0.2.1. This avoids storing machine-specific file paths in portable collection files.
 
 ## Install
 
-Download the build for your operating system from the [GitHub Releases page](https://github.com/900Labs/900API/releases). Each release includes a `SHA256SUMS.txt` file when the release workflow completes.
+Download the build for your operating system from the [GitHub Releases page](https://github.com/900Labs/900API/releases). The `v0.2.1` release workflow produces macOS arm64 and Intel DMGs, Linux AppImage, Debian, and RPM packages, plus Windows MSI and setup packages. Each completed release includes `SHA256SUMS.txt`.
+
+Before creating checksums, the workflow requires exactly one nonempty canonical 900API file for each of the seven package types. Only exact current-version macOS app archives and an existing checksum file from a rerun are also allowed. This validates the published artifact set and package generation. It does not test installation or upgrade behavior.
 
 The first public CI builds are unsigned. Windows SmartScreen and macOS Gatekeeper may warn before opening them. macOS builds use an ad-hoc identity so downloaded test builds are not treated as damaged, but they are not Apple-notarized. See [Public Releases](docs/PUBLIC_RELEASE.md) for verification and platform notes.
 
@@ -45,7 +45,7 @@ The first public CI builds are unsigned. Windows SmartScreen and macOS Gatekeepe
 
 You need:
 
-- Rust 1.88 or newer
+- Rustup, using the repository-pinned Rust 1.97.0 toolchain
 - Node.js 22
 - The [Tauri 2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system
 

@@ -1,6 +1,6 @@
 # Public Releases
 
-900API follows semantic versioning. The first public release prepared by this repository is `v0.2.0`.
+900API follows semantic versioning. The current maintenance release is `v0.2.1`.
 
 ## Before Creating a Tag
 
@@ -9,7 +9,7 @@
 3. Run `npm audit --audit-level=high`.
 4. Run `cargo audit` and review every warning.
 5. Build and open a native bundle on the current platform.
-6. Confirm the version is `0.2.0` in npm, both Rust crates, the shared core crate, Tauri configuration, and the changelog.
+6. Confirm the version is `0.2.1` in npm and its lockfile, all Rust packages and their lockfile entries, Tauri configuration, visible app fallbacks, and the changelog.
 7. Review README, support, security, contribution, issue, and pull request text as it appears on GitHub.
 8. Confirm repository About text and topics match `docs/GITHUB_METADATA.md`.
 9. Confirm CI passes on the release commit.
@@ -19,23 +19,39 @@ Do not create the tag if any required check fails.
 
 ## Tag Workflow
 
-Tags matching `v*` trigger `.github/workflows/release.yml`. Before any asset is published, the workflow requires the tag to equal `v` plus the version in Tauri configuration, `package.json`, and every 900API Cargo package. A malformed or mismatched tag stops the workflow. The workflow then uses the official `tauri-apps/tauri-action@v1` matrix pattern to build:
+Tags matching `v*` trigger `.github/workflows/release.yml`. The workflow can also be started manually for an existing tag. The quality job checks out only the explicit `refs/tags/<tag>` namespace, verifies the version metadata, resolves the tag to one immutable commit SHA, and exports that SHA. Build and checksum jobs check out only the exported SHA and never resolve the selected tag text as their build ref. Immediately before each tag-addressed release operation, the job refreshes the tag from origin and fails if it no longer resolves to the exported SHA.
+
+A missing, malformed, moved, or version-mismatched tag stops the workflow. The workflow uses Rust 1.97.0 and the official `tauri-apps/tauri-action@v1` matrix pattern to build:
 
 - macOS arm64
 - macOS x86_64
 - Ubuntu 22.04 x86_64
 - Windows x86_64
 
-When all platform jobs finish, a final job downloads the release assets, creates `SHA256SUMS.txt`, and uploads it to the release.
+When all platform jobs finish, a final job downloads the release assets and requires exactly one nonempty package matching each canonical 900API filename:
+
+- `900API_<version>_aarch64.dmg`
+- `900API_<version>_x64.dmg`
+- `900API_<version>_amd64.AppImage`
+- `900API_<version>_amd64.deb`
+- `900API-<version>-<rpm release>.x86_64.rpm`
+- `900API_<version>_x64_<locale>.msi`
+- `900API_<version>_x64-setup.exe`
+
+The only additional regular files allowed are nonempty current-version `aarch64.app.tar.gz` and `x64.app.tar.gz` archives with the `900API_` prefix, plus an existing `SHA256SUMS.txt` from a rerun. The checksum job ignores and regenerates that file. Stale, duplicate, differently named, and unexpected regular assets fail the workflow. Only after validation passes does the workflow create and upload the new `SHA256SUMS.txt`.
+
+This validates the release artifact set and confirms that the expected package files were generated. It does not install them and does not test fresh-install or upgrade behavior. Those platform smoke tests remain separate release work.
 
 Create the annotated tag only from the reviewed release commit:
 
 ```bash
-git tag -a v0.2.0 -m "900API 0.2.0"
-git push origin v0.2.0
+git tag -a v0.2.1 -m "900API 0.2.1"
+git push origin v0.2.1
 ```
 
 The control tower owns these commands and all GitHub settings changes.
+
+To rerun an existing tag, open the Release workflow in GitHub Actions, choose **Run workflow**, and enter the existing tag such as `v0.2.1`. The quality job resolves that explicit tag once, and every later job remains bound to the resulting commit SHA. The workflow does not create or move a tag.
 
 ## Verify a Download
 

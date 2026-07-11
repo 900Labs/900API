@@ -2,7 +2,7 @@
 
 This roadmap describes product direction, not a delivery promise. New work must preserve local-first operation, low-bandwidth usability, and support for older hardware.
 
-## Available in 0.2.0
+## Available in 0.2.1
 
 - REST workbench with tabs, collections, nested folders, environments, history, request settings, scripts, response search, and saved examples
 - JSON, raw text, text-only multipart fields, and URL-encoded request bodies
@@ -15,6 +15,7 @@ This roadmap describes product direction, not a delivery promise. New work must 
 - Headless CLI collection runs with bounded saved scripts and console, JSON, or JUnit reporting
 - Local API documentation generation
 - Plugin manifest metadata and local workspace planning records
+- Canonical, version-checked release packages for macOS arm64 and Intel, Linux, and Windows before checksum publication
 
 ## Near-Term Work
 

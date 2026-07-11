@@ -64,7 +64,7 @@
   }
 
   let activeView = $state<ViewName>('requests')
-  let appVersion = $state('0.2.0')
+  let appVersion = $state('0.2.1')
   let showCommandPalette = $state(false)
   let collections = $state<Collection[]>([])
   let savedRequests = $state<SavedRequest[]>([])

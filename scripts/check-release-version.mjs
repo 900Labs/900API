@@ -12,11 +12,37 @@ function readJsonVersion(root, relativePath) {
   return parsed.version
 }
 
+function readPackageLockVersion(root) {
+  const relativePath = 'package-lock.json'
+  const parsed = JSON.parse(readFileSync(resolve(root, relativePath), 'utf8'))
+  const rootVersion = parsed.packages?.['']?.version
+  if (typeof parsed.version !== 'string' || typeof rootVersion !== 'string') {
+    throw new Error(`${relativePath} does not contain package versions`)
+  }
+  if (parsed.version !== rootVersion) {
+    throw new Error(`${relativePath} package versions do not agree`)
+  }
+  return parsed.version
+}
+
 function readCargoVersion(root, relativePath) {
   const content = readFileSync(resolve(root, relativePath), 'utf8')
   const match = content.match(/^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)
   if (!match) throw new Error(`${relativePath} does not contain a package version`)
   return match[1]
+}
+
+function readCargoLockVersion(root, packageName) {
+  const relativePath = 'Cargo.lock'
+  const content = readFileSync(resolve(root, relativePath), 'utf8')
+  const packages = content.split('[[package]]').slice(1)
+  for (const entry of packages) {
+    const name = entry.match(/^\s*name\s*=\s*"([^"]+)"/m)?.[1]
+    if (name !== packageName) continue
+    const version = entry.match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1]
+    if (version) return version
+  }
+  throw new Error(`${relativePath} does not contain ${packageName}`)
 }
 
 export function validateReleaseVersions(tag, root = process.cwd()) {
@@ -31,10 +57,14 @@ export function validateReleaseVersions(tag, root = process.cwd()) {
 
   const versions = new Map([
     ['package.json', readJsonVersion(root, 'package.json')],
+    ['package-lock.json', readPackageLockVersion(root)],
     ['src-tauri/tauri.conf.json', readJsonVersion(root, 'src-tauri/tauri.conf.json')],
     ['src-tauri/Cargo.toml', readCargoVersion(root, 'src-tauri/Cargo.toml')],
     ['crates/900api-cli/Cargo.toml', readCargoVersion(root, 'crates/900api-cli/Cargo.toml')],
     ['crates/900api-core/Cargo.toml', readCargoVersion(root, 'crates/900api-core/Cargo.toml')],
+    ['Cargo.lock (api900)', readCargoLockVersion(root, 'api900')],
+    ['Cargo.lock (api900-cli)', readCargoLockVersion(root, 'api900-cli')],
+    ['Cargo.lock (api900-core)', readCargoLockVersion(root, 'api900-core')],
   ])
 
   for (const [file, version] of versions) {

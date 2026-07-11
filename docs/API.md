@@ -9,7 +9,7 @@ Returns the application version string.
 
 ```typescript
 const version = await invoke<string>('get_app_version')
-// "0.2.0"
+// "0.2.1"
 ```
 
 ### `send_request`

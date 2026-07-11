@@ -10,7 +10,7 @@ type TauriWindow = Window & {
 }
 
 const browserPreviewFallbacks: Record<string, unknown> = {
-  get_app_version: '0.2.0',
+  get_app_version: '0.2.1',
   list_collections: [],
   list_environments: [],
   list_history: [],

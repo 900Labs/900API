@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-11
+
+### Added
+- Strict cross-platform release asset validation for one canonical macOS arm64 and Intel DMG, Linux AppImage, Debian and RPM package, and Windows MSI and setup package.
+- Vitest coverage for complete, missing, empty, stale, duplicate, masquerading, and unexpected release artifact sets.
+
+### Changed
+- Updated application, npm, Tauri, and Rust workspace versions to `0.2.1`.
+- Pinned local and automated Rust builds to Rust `1.97.0` with the minimal rustup profile, Rustfmt, and Clippy.
+- Updated official GitHub Actions versions used by CI and release workflows.
+- Added a manual release workflow entry point for rebuilding an existing tag without creating or moving it.
+- Bound every release job to the immutable commit resolved from the explicit tag by the quality job, with a fresh remote tag check before each tag-addressed release operation.
+- Made artifact-set validation a prerequisite for generating and uploading `SHA256SUMS.txt`.
+
+### Documentation
+- Documented the `v0.2.1` packages, pinned toolchain, manual rerun path, artifact-set checks, and unsigned signing status.
+- Clarified that package validation does not test installation or upgrade behavior.
+
 ## [0.2.0] - 2026-07-11
 
 ### Added

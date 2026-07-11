@@ -19,7 +19,7 @@ The script runs these checks in order:
 9. `./scripts/test-privacy-gate.sh`
 10. `./scripts/verify-public-release.sh`
 
-The test suite includes collection schema compatibility, root fallback for missing or cyclic portable parents, SQLite collection replacement, malformed optional state recovery, incremental SSE decoding with standards-correct end-of-stream handling, bounded JavaScript execution, browser-safe Tauri wrappers, delayed connection teardown races, privacy scanner file coverage, and CLI process regressions for exit codes `1` and `2`.
+The repository pins Rust 1.97.0, Rustfmt, and Clippy in `rust-toolchain.toml`. The test suite includes collection schema compatibility, root fallback for missing or cyclic portable parents, SQLite collection replacement, malformed optional state recovery, incremental SSE decoding with standards-correct end-of-stream handling, bounded JavaScript execution, browser-safe Tauri wrappers, delayed connection teardown races, privacy scanner file coverage, CLI process regressions for exit codes `1` and `2`, and positive and negative release artifact-set validation.
 
 ## Dependency Review
 
@@ -43,6 +43,24 @@ npm run tauri:build:dmg
 ```
 
 The deterministic DMG helper is provided for local builds. The GitHub release workflow uses Tauri Action for platform packaging.
+
+After all release build jobs finish, the workflow runs:
+
+```bash
+npm run validate:release-assets -- release-assets v0.2.1
+```
+
+The validator requires exactly one nonempty canonical file for each package type:
+
+- `900API_<version>_aarch64.dmg`
+- `900API_<version>_x64.dmg`
+- `900API_<version>_amd64.AppImage`
+- `900API_<version>_amd64.deb`
+- `900API-<version>-<rpm release>.x86_64.rpm`
+- `900API_<version>_x64_<locale>.msi`
+- `900API_<version>_x64-setup.exe`
+
+The only additional regular files allowed are nonempty `900API_<version>_aarch64.app.tar.gz` and `900API_<version>_x64.app.tar.gz` archives, plus an existing `SHA256SUMS.txt` from a rerun. The checksum file is ignored because the job regenerates it. Every stale, duplicate, differently named, or unexpected regular asset fails validation. This gate validates the release artifact set and package generation, not installation or upgrade behavior.
 
 ## Review Standard
 

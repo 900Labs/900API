@@ -6,7 +6,7 @@ Start here:
 - [Architecture](ARCHITECTURE.md): runtime boundaries, storage, collection format, and failure behavior
 - [API Reference](API.md): Tauri command contracts used by the frontend
 - [Privacy Model](PRIVACY_MODEL.md): what stays local and what can leave the device
-- [Public Releases](PUBLIC_RELEASE.md): versioning, release workflow, checksums, and unsigned-build limitations
+- [Public Releases](PUBLIC_RELEASE.md): versioning, release reruns, artifact-set validation, checksums, and unsigned-build limitations
 - [Quality Gate](QUALITY_GATE.md): checks required before a merge or tag
 - [Roadmap](ROADMAP.md): planned work and current product boundaries
 - [Threat Model](THREAT_MODEL.md): security assumptions and mitigations

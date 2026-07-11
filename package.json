@@ -1,7 +1,7 @@
 {
   "name": "900api",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
     "test": "vitest run",
     "check:docs": "node scripts/check-docs.mjs",
     "check:release-version": "node scripts/check-release-version.mjs",
+    "validate:release-assets": "node scripts/validate-release-assets.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles app",

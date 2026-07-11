@@ -12,7 +12,7 @@ describe('browser-safe Tauri bridge', () => {
     const second = await invoke<unknown[]>('list_collections')
 
     expect(second).toEqual([])
-    await expect(invoke<string>('get_app_version')).resolves.toBe('0.2.0')
+    await expect(invoke<string>('get_app_version')).resolves.toBe('0.2.1')
   })
 
   it('fails clearly for desktop-only actions', async () => {

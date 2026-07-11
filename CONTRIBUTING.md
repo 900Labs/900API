@@ -6,7 +6,7 @@ Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Set Up the Project
 
-You need Rust 1.88 or newer, Node.js 22, Git, ripgrep, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system.
+You need Rustup, Node.js 22, Git, ripgrep, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. The repository pins Rust 1.97.0 with Rustfmt and Clippy in `rust-toolchain.toml`.
 
 ```bash
 git clone https://github.com/900Labs/900API.git
@@ -40,7 +40,7 @@ Update documentation in the same pull request when behavior, commands, setup, su
 ./scripts/verify-local.sh
 ```
 
-The gate formats and lints Rust, performs a clean npm install, runs frontend and Rust tests, checks TypeScript and Svelte, builds the frontend, and scans public files for privacy leaks.
+The gate formats and lints Rust, performs a clean npm install, runs frontend and Rust tests, checks TypeScript and Svelte, builds the frontend, and scans public files for privacy leaks. The npm tests include positive and negative coverage for release artifact-set validation.
 
 For dependency changes, also run:
 
