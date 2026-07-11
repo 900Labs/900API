@@ -66,15 +66,11 @@ impl SseDecoder {
 
     fn drain_lines(&mut self, finish: bool) -> Vec<DecodedSseEvent> {
         let mut events = Vec::new();
-        loop {
-            let Some(index) = self
-                .buffer
-                .iter()
-                .position(|byte| *byte == b'\n' || *byte == b'\r')
-            else {
-                break;
-            };
-
+        while let Some(index) = self
+            .buffer
+            .iter()
+            .position(|byte| *byte == b'\n' || *byte == b'\r')
+        {
             if !finish && self.buffer[index] == b'\r' && index + 1 == self.buffer.len() {
                 break;
             }
