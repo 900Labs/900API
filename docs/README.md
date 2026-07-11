@@ -1,23 +1,25 @@
 # 900API Documentation
 
-## Build and Use
-- [Architecture Overview](ARCHITECTURE.md) — system design, data flow, offline model, and data model
-- [API Documentation](API.md) — complete Tauri command reference
-- [Roadmap](ROADMAP.md) — feature roadmap and post-MVP plans
-- [Public Release Checklist](PUBLIC_RELEASE.md) — release readiness checks
-- [Audit Remediation Report](AUDIT_REMEDIATION_REPORT.md) — builder handoff for verified fixes, docs updates, validation, and residual dependency warnings
-- [UX Remediation Report](UX_REMEDIATION_REPORT.md) — builder handoff for the workbench, menus, global search, tabs, folders, history snapshots, cURL import, snippets, response search/examples/compare/viewer tools, variable autocomplete, request runtime settings, OpenAPI import/export, GraphQL query assist/schema explorer, and gRPC proto helper pass
+Start here:
 
-## Privacy and Security
-- [Privacy Model](PRIVACY_MODEL.md) — privacy guarantees and data flow
-- [Threat Model](THREAT_MODEL.md) — security threats and mitigations
+- [README](../README.md): product purpose, installation, first request, collections, environments, Git, and CLI
+- [Architecture](ARCHITECTURE.md): runtime boundaries, storage, collection format, and failure behavior
+- [API Reference](API.md): Tauri command contracts used by the frontend
+- [Privacy Model](PRIVACY_MODEL.md): what stays local and what can leave the device
+- [Public Releases](PUBLIC_RELEASE.md): versioning, release workflow, checksums, and unsigned-build limitations
+- [Quality Gate](QUALITY_GATE.md): checks required before a merge or tag
+- [Roadmap](ROADMAP.md): planned work and current product boundaries
+- [Threat Model](THREAT_MODEL.md): security assumptions and mitigations
 
-## Process
-- [Quality Gate](QUALITY_GATE.md) — required pre-merge validation baseline
-- [Sprint Process](SPRINT_PROCESS.md) — sprint workflow and review policy
-- [Sprint Records](sprints/) — delivered sprint scope, validation, and decision history
+Architecture decisions:
 
-## Architecture Decision Records
-- [ADR-001: Tech Stack Selection](adr/ADR-001-tech-stack-selection.md)
-- [ADR-002: Git-Native Collection Storage](adr/ADR-002-git-native-collection-storage.md)
-- [ADR-003: Sandboxed JS Scripting](adr/ADR-003-sandboxed-js-scripting.md)
+- [ADR 001: Technology Stack](adr/ADR-001-tech-stack-selection.md)
+- [ADR 002: Git-Native Collection Storage](adr/ADR-002-git-native-collection-storage.md)
+- [ADR 003: Sandboxed JavaScript](adr/ADR-003-sandboxed-js-scripting.md)
+
+Community and project support:
+
+- [Contributing](../CONTRIBUTING.md)
+- [Support](../SUPPORT.md)
+- [Code of Conduct](../CODE_OF_CONDUCT.md)
+- [Security Policy](../SECURITY.md)

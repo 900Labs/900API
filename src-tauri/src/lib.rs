@@ -8,6 +8,7 @@ mod http;
 mod import;
 mod mock;
 mod models;
+mod persistence;
 mod plugins;
 mod scripting;
 mod sse;
@@ -46,29 +47,38 @@ pub fn run() {
             team_manager: team::TeamManager::new(),
         })
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("failed to get app data dir");
-            std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
+            let app_data_dir = app.path().app_data_dir().map_err(|error| {
+                std::io::Error::other(format!("Could not locate the app data directory: {error}"))
+            })?;
+            std::fs::create_dir_all(&app_data_dir).map_err(|error| {
+                std::io::Error::other(format!("Could not create the app data directory: {error}"))
+            })?;
 
             let db_path = app_data_dir.join("900api.db");
-            let database = db::Database::open(&db_path).expect("failed to open database");
+            let database = db::Database::open(&db_path).map_err(|error| {
+                std::io::Error::other(format!("Could not open the local database: {error}"))
+            })?;
 
             let state: tauri::State<AppState> = app.state();
             *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(database);
-            state
+            if let Err(error) = state
                 .sync_manager
                 .set_storage_path(app_data_dir.join("sync-config.json"))
-                .expect("failed to load sync config");
-            state
+            {
+                log::error!("Could not load optional Git Sync settings: {error}");
+            }
+            if let Err(error) = state
                 .plugin_manager
                 .set_storage_path(app_data_dir.join("plugins.json"))
-                .expect("failed to load plugin registry");
-            state
+            {
+                log::error!("Could not load optional plugin registry: {error}");
+            }
+            if let Err(error) = state
                 .team_manager
                 .set_storage_path(app_data_dir.join("team-workspaces.json"))
-                .expect("failed to load team workspaces");
+            {
+                log::error!("Could not load optional local workspace plans: {error}");
+            }
 
             Ok(())
         })
@@ -150,5 +160,8 @@ pub fn run() {
             commands::team_unshare_collection,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|error| {
+            eprintln!("900API could not start: {error}");
+            std::process::exit(1);
+        });
 }

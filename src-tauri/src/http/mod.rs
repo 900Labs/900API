@@ -87,41 +87,49 @@ fragment TypeRef on __Type {
 }
 "#;
 
-static SHARED_CLIENT: OnceLock<Client> = OnceLock::new();
-static COOKIE_CLIENT: OnceLock<Client> = OnceLock::new();
+static SHARED_CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+static COOKIE_CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
 static COOKIE_JAR: OnceLock<Arc<Jar>> = OnceLock::new();
 
-fn get_client() -> &'static Client {
-    SHARED_CLIENT.get_or_init(|| {
-        Client::builder()
-            .danger_accept_invalid_certs(false)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .pool_max_idle_per_host(20)
-            .timeout(Duration::from_secs(120))
-            .connect_timeout(Duration::from_secs(30))
-            .tcp_nodelay(true)
-            .build()
-            .expect("failed to build shared HTTP client")
-    })
+fn get_client() -> Result<&'static Client, HttpError> {
+    SHARED_CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .danger_accept_invalid_certs(false)
+                .pool_idle_timeout(Duration::from_secs(90))
+                .pool_max_idle_per_host(20)
+                .timeout(Duration::from_secs(120))
+                .connect_timeout(Duration::from_secs(30))
+                .tcp_nodelay(true)
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| HttpError::RequestFailed(format!("Could not build HTTP client: {error}")))
 }
 
 fn get_cookie_jar() -> Arc<Jar> {
     COOKIE_JAR.get_or_init(|| Arc::new(Jar::default())).clone()
 }
 
-fn get_cookie_client() -> &'static Client {
-    COOKIE_CLIENT.get_or_init(|| {
-        Client::builder()
-            .cookie_provider(get_cookie_jar())
-            .danger_accept_invalid_certs(false)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .pool_max_idle_per_host(20)
-            .timeout(Duration::from_secs(120))
-            .connect_timeout(Duration::from_secs(30))
-            .tcp_nodelay(true)
-            .build()
-            .expect("failed to build shared cookie HTTP client")
-    })
+fn get_cookie_client() -> Result<&'static Client, HttpError> {
+    COOKIE_CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .cookie_provider(get_cookie_jar())
+                .danger_accept_invalid_certs(false)
+                .pool_idle_timeout(Duration::from_secs(90))
+                .pool_max_idle_per_host(20)
+                .timeout(Duration::from_secs(120))
+                .connect_timeout(Duration::from_secs(30))
+                .tcp_nodelay(true)
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| {
+            HttpError::RequestFailed(format!("Could not build cookie HTTP client: {error}"))
+        })
 }
 
 fn validate_settings(settings: &RequestSettings) -> Result<(), HttpError> {
@@ -142,7 +150,7 @@ fn build_client(settings: &RequestSettings) -> Result<Client, HttpError> {
     validate_settings(settings)?;
 
     if settings == &RequestSettings::default() {
-        return Ok(get_client().clone());
+        return Ok(get_client()?.clone());
     }
 
     if settings.use_cookie_jar
@@ -152,7 +160,7 @@ fn build_client(settings: &RequestSettings) -> Result<Client, HttpError> {
         && settings.verify_ssl
         && settings.proxy_url.trim().is_empty()
     {
-        return Ok(get_cookie_client().clone());
+        return Ok(get_cookie_client()?.clone());
     }
 
     let mut builder = Client::builder()
@@ -243,30 +251,37 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
     // Apply body
     request = match &config.body_type {
         BodyType::None => request,
-        BodyType::Json => request
-            .header("Content-Type", "application/json")
-            .body(config.body.clone()),
+        BodyType::Json => {
+            if !config.body.trim().is_empty() {
+                serde_json::from_str::<Value>(&config.body).map_err(|error| {
+                    HttpError::RequestFailed(format!("Invalid JSON request body: {error}"))
+                })?;
+            }
+            request
+                .header("Content-Type", "application/json")
+                .body(config.body.clone())
+        }
         BodyType::Raw => request.body(config.body.clone()),
         BodyType::FormData => {
             let mut form = reqwest::multipart::Form::new();
             // Parse body as key=value lines or JSON array
-            if let Ok(entries) = serde_json::from_str::<Vec<KeyValue>>(&config.body) {
-                for entry in entries {
-                    form = form.text(entry.key, entry.value);
-                }
+            let entries = parse_form_fields(&config.body, "multipart form-data")?;
+            for entry in entries
+                .into_iter()
+                .filter(|entry| entry.enabled && !entry.key.trim().is_empty())
+            {
+                form = form.text(entry.key, entry.value);
             }
             request.multipart(form)
         }
         BodyType::XWwwFormUrlencoded => {
-            let mut form_data = Vec::new();
-            if let Ok(entries) = serde_json::from_str::<Vec<KeyValue>>(&config.body) {
-                for entry in entries {
-                    form_data.push((entry.key, entry.value));
-                }
-            }
+            let form_data = parse_form_fields(&config.body, "URL-encoded form")?
+                .into_iter()
+                .filter(|entry| entry.enabled && !entry.key.trim().is_empty())
+                .map(|entry| (entry.key, entry.value))
+                .collect::<Vec<_>>();
             request.form(&form_data)
         }
-        BodyType::Binary => request.body(config.body.clone()),
     };
 
     let start = Instant::now();
@@ -286,7 +301,7 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    let body = response.text().await.unwrap_or_default();
+    let body = response.text().await?;
     let size_bytes = body.len();
 
     Ok(ResponseData {
@@ -297,6 +312,14 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
         time_ms: elapsed.as_millis() as u64,
         size_bytes,
     })
+}
+
+fn parse_form_fields(body: &str, label: &str) -> Result<Vec<KeyValue>, HttpError> {
+    if body.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(body)
+        .map_err(|error| HttpError::RequestFailed(format!("Invalid {label} fields: {error}")))
 }
 
 pub async fn send_graphql(
@@ -310,7 +333,7 @@ pub async fn send_graphql(
 ) -> Result<ResponseData, HttpError> {
     let resolved_url = variables::resolve_variables(url, env_vars);
 
-    let client = get_client();
+    let client = get_client()?;
 
     // Parse variables JSON
     let variables_json: serde_json::Value = if variables.trim().is_empty() {
@@ -371,7 +394,7 @@ pub async fn send_graphql(
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    let body = response.text().await.unwrap_or_default();
+    let body = response.text().await?;
     let size_bytes = body.len();
 
     Ok(ResponseData {

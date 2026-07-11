@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke, listen } from '../../lib/tauri'
+  import { createConnectionLifecycle } from '../../lib/connectionCleanup'
   import { Plug, Unplug, Trash2 } from '@lucide/svelte'
 
   type SseEvent = {
@@ -14,6 +15,7 @@
     id: string
     url: string
     status: 'connecting' | 'connected' | 'disconnected' | 'error'
+    error: string | null
     event_count: number
   }
 
@@ -27,6 +29,8 @@
   let unlistenState: (() => void) | null = null
   let unlistenEvent: (() => void) | null = null
   let showHeaders = $state(false)
+  let error = $state<string | null>(null)
+  const lifecycle = createConnectionLifecycle('sse_disconnect')
 
   const statusColors: Record<string, string> = {
     disconnected: 'text-text-muted',
@@ -37,41 +41,61 @@
 
   async function connect() {
     if (!url.trim()) return
-    connectionId = crypto.randomUUID()
+    const id = crypto.randomUUID()
+    connectionId = id
     events = []
+    error = null
     status = 'connecting'
 
-    unlistenState = await listen<SseConnectionState>(`sse-${connectionId}-state`, (event) => {
+    const stateListener = await listen<SseConnectionState>(`sse-${id}-state`, (event) => {
+      if (lifecycle.isDestroyed() || connectionId !== id) return
       status = event.payload.status as typeof status
+      error = event.payload.error
     })
+    if (lifecycle.isDestroyed() || connectionId !== id) {
+      stateListener()
+      return
+    }
+    unlistenState = stateListener
 
-    unlistenEvent = await listen<SseEvent>(`sse-${connectionId}-event`, (event) => {
-      events = [...events, event.payload]
+    const eventListener = await listen<SseEvent>(`sse-${id}-event`, (event) => {
+      if (lifecycle.isDestroyed() || connectionId !== id) return
+      events = [...events, event.payload].slice(-500)
     })
+    if (lifecycle.isDestroyed() || connectionId !== id) {
+      eventListener()
+      stateListener()
+      if (unlistenState === stateListener) unlistenState = null
+      return
+    }
+    unlistenEvent = eventListener
 
-    try {
-      await invoke('sse_connect', {
-        id: connectionId,
+    const result = await lifecycle.establish(id, () =>
+      invoke('sse_connect', {
+        id,
         url,
         headers: headers.filter((h) => h.key.trim() !== ''),
-      })
-    } catch (e) {
+      }),
+    )
+    if (!result.active && result.error && !lifecycle.isDestroyed() && connectionId === id) {
       status = 'error'
-      console.error('SSE connect failed:', e)
+      error = String(result.error)
     }
   }
 
   async function disconnect() {
-    if (!connectionId) return
+    const id = connectionId
+    if (!id) return
+    connectionId = null
     try {
-      await invoke('sse_disconnect', { id: connectionId })
+      await lifecycle.cancel(id)
     } catch (e) {
-      console.error('SSE disconnect failed:', e)
+      if (!lifecycle.isDestroyed()) error = String(e)
     }
+    if (lifecycle.isDestroyed()) return
     status = 'disconnected'
     if (unlistenState) { unlistenState(); unlistenState = null }
     if (unlistenEvent) { unlistenEvent(); unlistenEvent = null }
-    connectionId = null
   }
 
   function clearEvents() {
@@ -94,6 +118,9 @@
     return () => {
       if (unlistenState) unlistenState()
       if (unlistenEvent) unlistenEvent()
+      const id = connectionId
+      connectionId = null
+      lifecycle.destroy(id)
     }
   })
 </script>
@@ -132,6 +159,10 @@
       </button>
     {/if}
   </div>
+
+  {#if error}
+    <div class="border-b border-border bg-error/10 px-3 py-2 text-sm text-error" role="alert">{error}</div>
+  {/if}
 
   <!-- Headers toggle -->
   <div class="border-b border-border px-3 py-1.5">

@@ -1,29 +1,30 @@
-# ADR-002: Git-Native Collection Storage
+# ADR 002: Git-Native Collection Storage
 
-## Date
-2026-06-29
+Date: 2026-06-29
 
-## Status
-Accepted
+Status: Accepted, updated for 0.2.0
 
 ## Context
 
-API collections need to be shareable and version-controllable. Options:
+The desktop app needs fast local queries and history, while teams also need collection files that can be reviewed and versioned without a hosted account.
 
-1. **Cloud sync** (Postman model) — Requires accounts, servers, and internet. Violates offline-first principle.
-2. **SQLite only** — Fast, simple, but not version-controllable. Can't be diffed in Git.
-3. **Git-native files** (Bruno model) — Collections stored as plain-text JSON files. Version-controllable. No cloud needed.
-4. **Hybrid** — SQLite for app state, exportable to JSON files for Git.
+SQLite alone is efficient but is not suitable for source review. Cloud sync would require accounts, servers, and dependable connectivity. Plain files are reviewable but are less convenient for application state and related records.
 
 ## Decision
 
-Use **hybrid storage**: SQLite for the running app (fast queries, history, settings) with export/import to plain-text JSON files for Git version control.
+Use hybrid storage:
 
-Collections are stored in SQLite for performance but can be exported as JSON files that live alongside code in a Git repository. The CLI runner reads these JSON files directly.
+- SQLite is the working store for collections, requests, examples, environments, and history.
+- Git Sync exports complete collections as readable JSON files into a directory selected by the user.
+- Git Sync imports selected files back into SQLite in one transaction.
+- Desktop export, Git Sync, and CLI use `900api.collection/v1` from `crates/900api-core`.
+- Legacy 0.1 files with JSON-encoded string fields remain importable.
+
+Portable files include stable collection and request IDs, request data, scripts, settings, and response examples. They do not include machine-specific binary or multipart file paths.
 
 ## Consequences
 
-- Users must explicitly export collections to get Git-friendly files
-- The JSON export format must be stable and well-documented
-- The CLI runner depends on the JSON format, not SQLite
-- Future work: file-watching to auto-sync JSON files back to SQLite
+- Export is explicit. The app does not watch files or silently overwrite local collections.
+- Import replaces an existing collection with the same portable ID, including its requests and response examples.
+- Literal credentials saved in a request can appear in exported JSON. Users should use environment variables and review files before committing.
+- Future schema changes require compatibility tests in the shared core crate.

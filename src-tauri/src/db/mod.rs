@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use std::path::Path;
 use thiserror::Error;
 
@@ -15,6 +16,42 @@ pub enum DbError {
 
 pub struct Database {
     conn: Connection,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ParentValidation {
+    Valid,
+    Missing,
+    Cycle,
+}
+
+fn validate_collection_parent(
+    conn: &Connection,
+    collection_id: &str,
+    parent_id: &str,
+) -> Result<ParentValidation, DbError> {
+    let mut current = Some(parent_id.to_string());
+    let mut visited = HashSet::new();
+
+    while let Some(candidate) = current {
+        if candidate == collection_id || !visited.insert(candidate.clone()) {
+            return Ok(ParentValidation::Cycle);
+        }
+
+        let parent = conn
+            .query_row(
+                "SELECT parent_id FROM collections WHERE id = ?1",
+                params![candidate],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        match parent {
+            Some(next) => current = next,
+            None => return Ok(ParentValidation::Missing),
+        }
+    }
+
+    Ok(ParentValidation::Valid)
 }
 
 impl Database {
@@ -157,6 +194,164 @@ impl Database {
         Ok(collections)
     }
 
+    pub fn get_collection(&self, id: &str) -> Result<crate::models::Collection, DbError> {
+        self.conn
+            .query_row(
+                "SELECT id, name, description, parent_id, sort_order, created_at, updated_at FROM collections WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(crate::models::Collection {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        parent_id: row.get(3)?,
+                        sort_order: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| DbError::NotFound(format!("Collection {}", id)))
+    }
+
+    pub fn import_collection_file(
+        &self,
+        imported: &api900_core::format::CollectionFile,
+    ) -> Result<crate::models::Collection, DbError> {
+        let transaction = self.conn.unchecked_transaction()?;
+        let id = imported
+            .id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let now = chrono::Utc::now().to_rfc3339();
+        let created_at = transaction
+            .query_row(
+                "SELECT created_at FROM collections WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| now.clone());
+        let parent_id = match imported
+            .parent_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+        {
+            Some(parent_id)
+                if validate_collection_parent(&transaction, &id, parent_id)?
+                    == ParentValidation::Valid =>
+            {
+                Some(parent_id.to_string())
+            }
+            _ => None,
+        };
+
+        transaction.execute(
+            "INSERT INTO collections (id, name, description, parent_id, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name,
+               description = excluded.description,
+               parent_id = excluded.parent_id,
+               sort_order = excluded.sort_order,
+               updated_at = excluded.updated_at",
+            params![
+                id,
+                imported.name,
+                imported.description,
+                parent_id,
+                imported.sort_order,
+                created_at,
+                now
+            ],
+        )?;
+        transaction.execute("DELETE FROM requests WHERE collection_id = ?1", params![id])?;
+
+        for (index, request) in imported.requests.iter().enumerate() {
+            let request_id = request
+                .id
+                .as_deref()
+                .filter(|request_id| !request_id.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let sort_order = if request.sort_order == 0 {
+                index as i32 + 1
+            } else {
+                request.sort_order
+            };
+            let headers = serde_json::to_string(&request.headers)
+                .map_err(|error| DbError::NotFound(error.to_string()))?;
+            let params_json = serde_json::to_string(&request.params)
+                .map_err(|error| DbError::NotFound(error.to_string()))?;
+            let auth_config = api900_core::format::value_to_json(&request.auth_config);
+            let settings = api900_core::format::value_to_json(&request.settings);
+
+            transaction.execute(
+                "INSERT INTO requests (
+                    id, collection_id, name, method, url, headers, params, body_type, body,
+                    auth_type, auth_config, pre_request_script, test_script, settings,
+                    sort_order, created_at, updated_at
+                 ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                 )",
+                params![
+                    request_id,
+                    id,
+                    request.name,
+                    request.method.to_ascii_uppercase(),
+                    request.url,
+                    headers,
+                    params_json,
+                    request.body_type,
+                    request.body,
+                    request.auth_type,
+                    auth_config,
+                    request.pre_request_script,
+                    request.test_script,
+                    settings,
+                    sort_order,
+                    now,
+                    now
+                ],
+            )?;
+
+            for example in &request.response_examples {
+                transaction.execute(
+                    "INSERT INTO response_examples (
+                        id, request_id, name, status, status_text, headers, body,
+                        time_ms, size_bytes, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        uuid::Uuid::new_v4().to_string(),
+                        request_id,
+                        example.name,
+                        example.status,
+                        example.status_text,
+                        api900_core::format::value_to_json(&example.headers),
+                        example.body,
+                        example.time_ms,
+                        example.size_bytes,
+                        now
+                    ],
+                )?;
+            }
+        }
+
+        transaction.commit()?;
+        Ok(crate::models::Collection {
+            id,
+            name: imported.name.clone(),
+            description: imported.description.clone(),
+            parent_id,
+            sort_order: imported.sort_order,
+            created_at,
+            updated_at: now,
+        })
+    }
+
     pub fn create_collection(
         &self,
         name: &str,
@@ -208,28 +403,22 @@ impl Database {
     }
 
     pub fn move_collection(&self, id: &str, parent_id: Option<&str>) -> Result<(), DbError> {
-        if parent_id == Some(id) {
-            return Err(DbError::NotFound(
-                "A collection cannot be moved into itself".to_string(),
-            ));
-        }
         if let Some(parent) = parent_id {
-            let mut current_parent: Option<String> = Some(parent.to_string());
-            while let Some(candidate) = current_parent {
-                if candidate == id {
+            match validate_collection_parent(&self.conn, id, parent)? {
+                ParentValidation::Valid => {}
+                ParentValidation::Missing => {
+                    return Err(DbError::NotFound(format!("Collection {}", parent)));
+                }
+                ParentValidation::Cycle if parent == id => {
+                    return Err(DbError::NotFound(
+                        "A collection cannot be moved into itself".to_string(),
+                    ));
+                }
+                ParentValidation::Cycle => {
                     return Err(DbError::NotFound(
                         "A collection cannot be moved into one of its descendants".to_string(),
                     ));
                 }
-                current_parent = self
-                    .conn
-                    .query_row(
-                        "SELECT parent_id FROM collections WHERE id = ?1",
-                        params![candidate],
-                        |row| row.get(0),
-                    )
-                    .optional()?
-                    .flatten();
             }
         }
 

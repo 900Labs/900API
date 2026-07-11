@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '../../lib/tauri'
+  import { open, save } from '@tauri-apps/plugin-dialog'
   import {
     ChevronDown,
     ChevronRight,
@@ -317,7 +318,6 @@
 
   async function exportCollection(col: Collection) {
     try {
-      const { save } = await import('@tauri-apps/plugin-dialog')
       const path = await save({
         defaultPath: `${col.name.replace(/\s+/g, '_')}.json`,
         filters: [{ name: 'JSON', extensions: ['json'] }],
@@ -333,7 +333,6 @@
 
   async function exportOpenApi(col: Collection) {
     try {
-      const { save } = await import('@tauri-apps/plugin-dialog')
       const path = await save({
         defaultPath: `${col.name.replace(/\s+/g, '_')}.openapi.json`,
         filters: [{ name: 'OpenAPI JSON', extensions: ['json'] }],
@@ -349,7 +348,6 @@
 
   async function importCollection() {
     try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
       const path = await open({
         filters: [{ name: 'API collections', extensions: ['json', 'yaml', 'yml'] }],
         multiple: false,

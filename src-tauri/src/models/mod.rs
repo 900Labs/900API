@@ -72,7 +72,6 @@ pub enum BodyType {
     FormData,
     XWwwFormUrlencoded,
     Raw,
-    Binary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

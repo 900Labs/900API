@@ -15,29 +15,16 @@
     changed_files: string[]
   }
 
-  type ExportCollection = {
+  type LocalCollection = {
+    id: string
     name: string
     description: string | null
-    requests: ExportRequest[]
-    exported_at: string
-    version: string
-  }
-
-  type ExportRequest = {
-    name: string
-    method: string
-    url: string
-    headers: { key: string; value: string; enabled: boolean }[]
-    params: { key: string; value: string; enabled: boolean }[]
-    body_type: string
-    body: string
-    auth_type: string
-    auth_config: string
   }
 
   let config = $state<SyncConfig | null>(null)
   let gitStatus = $state<GitStatus | null>(null)
   let collections = $state<string[]>([])
+  let localCollections = $state<LocalCollection[]>([])
   let commitMessage = $state('')
   let loading = $state(false)
   let error = $state<string | null>(null)
@@ -46,6 +33,8 @@
 
   async function loadConfig() {
     config = await invoke<SyncConfig | null>('sync_get_config')
+    localCollections = await invoke<LocalCollection[]>('list_collections')
+    if (config?.directory) await refreshStatus()
   }
 
   async function saveConfig() {
@@ -71,6 +60,7 @@
     loading = true
     error = null
     try {
+      localCollections = await invoke<LocalCollection[]>('list_collections')
       gitStatus = await invoke<GitStatus>('sync_git_status')
       collections = await invoke<string[]>('sync_list_collections')
     } catch (e) {
@@ -146,9 +136,24 @@
     loading = true
     error = null
     try {
-      const filePath = `${config.directory}/${name}.json`
-      const collection = await invoke<ExportCollection>('sync_import_collection', { filePath })
-      success = `Imported "${collection.name}" with ${collection.requests.length} requests`
+      const collection = await invoke<LocalCollection>('sync_import_collection', { name })
+      window.dispatchEvent(new CustomEvent('900api:collections-changed'))
+      success = `Imported "${collection.name}" into the local workspace`
+      setTimeout(() => (success = null), 3000)
+    } catch (e) {
+      error = String(e)
+    } finally {
+      loading = false
+    }
+  }
+
+  async function exportCollection(collection: LocalCollection) {
+    loading = true
+    error = null
+    try {
+      await invoke<string>('sync_export_collection', { collectionId: collection.id })
+      await refreshStatus()
+      success = `Exported "${collection.name}" to the sync directory`
       setTimeout(() => (success = null), 3000)
     } catch (e) {
       error = String(e)
@@ -222,6 +227,29 @@
   </div>
 
   {#if config?.directory}
+    <div class="mb-6 rounded-lg border border-border bg-surface p-4">
+      <h3 class="mb-3 text-sm font-medium">Local Collections</h3>
+      {#if localCollections.length === 0}
+        <p class="text-sm text-text-muted">Create a collection before exporting it for Git.</p>
+      {:else}
+        <div class="space-y-2">
+          {#each localCollections as collection (collection.id)}
+            <div class="flex items-center gap-2 rounded border border-border bg-bg p-2">
+              <FileJson class="h-4 w-4 text-accent" />
+              <span class="flex-1 text-sm">{collection.name}</span>
+              <button
+                class="rounded px-2 py-1 text-xs text-accent hover:text-accent-hover disabled:opacity-50"
+                onclick={() => exportCollection(collection)}
+                disabled={loading}
+              >
+                Export
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
     <!-- Git Actions -->
     <div class="mb-6 rounded-lg border border-border bg-surface p-4">
       <div class="mb-3 flex items-center justify-between">

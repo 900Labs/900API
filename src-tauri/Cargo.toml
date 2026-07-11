@@ -1,7 +1,7 @@
 [package]
 name = "api900"
-version = "0.1.1"
-description = "API testing and documentation client — a Postman alternative that respects your privacy"
+version = "0.2.0"
+description = "Local-first API testing and documentation client"
 authors = ["900 Labs"]
 license = "MIT"
 repository = "https://github.com/900Labs/900API"
@@ -31,7 +31,7 @@ thiserror = "2"
 log = "0.4"
 env_logger = "0.11"
 url = "2"
-boa_engine = "0.20"
+api900-core = { path = "../crates/900api-core" }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
 hex = "0.4"

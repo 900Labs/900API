@@ -1,4 +1,4 @@
-# API Documentation — Tauri Command Reference
+# API Documentation: Tauri Command Reference
 
 All commands are invoked from the frontend via `@tauri-apps/api/core` `invoke()`.
 
@@ -9,7 +9,7 @@ Returns the application version string.
 
 ```typescript
 const version = await invoke<string>('get_app_version')
-// "0.1.1"
+// "0.2.0"
 ```
 
 ### `send_request`
@@ -39,8 +39,8 @@ const response = await invoke<ResponseData>('send_request', {
 ```
 
 **Parameters:**
-- `config: RequestConfig` — the request configuration
-- `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution in URL, headers, params, body, and auth fields
+- `config: RequestConfig`  -  the request configuration
+- `environmentVariables?: EnvironmentVariable[]`  -  optional env vars for `{{var}}` resolution in URL, headers, params, body, and auth fields
 
 **Returns:** `ResponseData` with `status`, `status_text`, `headers`, `body`, `time_ms`, `size_bytes`
 
@@ -62,13 +62,13 @@ const response = await invoke<ResponseData>('send_graphql', {
 ```
 
 **Parameters:**
-- `url: string` — the GraphQL endpoint URL
-- `query: string` — the GraphQL query/mutation string
-- `variables: string` — JSON string of variables
-- `operationName: string | null` — optional operation name
-- `headers: KeyValue[]` — custom headers
-- `auth: AuthConfig` — auth configuration
-- `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution
+- `url: string`  -  the GraphQL endpoint URL
+- `query: string`  -  the GraphQL query/mutation string
+- `variables: string`  -  JSON string of variables
+- `operationName: string | null`  -  optional operation name
+- `headers: KeyValue[]`  -  custom headers
+- `auth: AuthConfig`  -  auth configuration
+- `environmentVariables?: EnvironmentVariable[]`  -  optional env vars for `{{var}}` resolution
 
 **Returns:** `ResponseData`
 
@@ -85,10 +85,10 @@ const schema = await invoke<GraphQLSchema>('introspect_graphql_schema', {
 ```
 
 **Parameters:**
-- `url: string` — the GraphQL endpoint URL
-- `headers: KeyValue[]` — custom headers
-- `auth: AuthConfig` — auth configuration
-- `environmentVariables?: EnvironmentVariable[]` — optional env vars for `{{var}}` resolution
+- `url: string`  -  the GraphQL endpoint URL
+- `headers: KeyValue[]`  -  custom headers
+- `auth: AuthConfig`  -  auth configuration
+- `environmentVariables?: EnvironmentVariable[]`  -  optional env vars for `{{var}}` resolution
 
 **Returns:** `GraphQLSchema` with root operation names and non-executable schema metadata for types, fields, arguments, input fields, enum values, and possible types.
 
@@ -115,9 +115,9 @@ const collection = await invoke<Collection>('create_collection', {
 ```
 
 **Parameters:**
-- `name: string` — collection name
-- `description?: string` — optional description
-- `parentId?: string | null` — optional parent collection/folder ID
+- `name: string`  -  collection name
+- `description?: string`  -  optional description
+- `parentId?: string | null`  -  optional parent collection/folder ID
 
 ### `update_collection`
 Renames or updates a collection description.
@@ -131,9 +131,9 @@ await invoke('update_collection', {
 ```
 
 **Parameters:**
-- `id: string` — collection ID
-- `name: string` — collection name
-- `description?: string | null` — optional description
+- `id: string`  -  collection ID
+- `name: string`  -  collection name
+- `description?: string | null`  -  optional description
 
 ### `move_collection`
 Moves a collection into another collection/folder or back to the root. The backend rejects moves that would create a parent/child cycle.
@@ -151,8 +151,8 @@ await invoke('move_collection', {
 ```
 
 **Parameters:**
-- `id: string` — collection ID to move
-- `parentId?: string | null` — destination parent collection/folder ID
+- `id: string`  -  collection ID to move
+- `parentId?: string | null`  -  destination parent collection/folder ID
 
 ### `delete_collection`
 Deletes a collection, its child collections, and its requests.
@@ -190,7 +190,7 @@ const history = await invoke<HistoryEntry[]>('list_history', { limit: 100 })
 ```
 
 **Parameters:**
-- `limit?: number` — max entries (default 100, max 500)
+- `limit?: number`  -  max entries (default 100, max 500)
 
 **Returns:** `HistoryEntry[]` with `id`, `method`, `url`, `status`, `time_ms`, `size_bytes`, `request_snapshot`, and `created_at`.
 
@@ -211,7 +211,7 @@ const requests = await invoke<SavedRequest[]>('list_requests', { collectionId: '
 ```
 
 **Parameters:**
-- `collectionId: string` — the collection ID
+- `collectionId: string`  -  the collection ID
 
 **Returns:** `SavedRequest[]` with `id`, `collection_id`, `name`, `method`, `url`, `headers`, `params`, `body_type`, `body`, `auth_type`, `auth_config`, `settings`, `sort_order`, `created_at`, `updated_at`
 
@@ -272,7 +272,7 @@ const examples = await invoke<ResponseExample[]>('list_response_examples', {
 ```
 
 **Parameters:**
-- `requestId: string` — saved request ID
+- `requestId: string`  -  saved request ID
 
 **Returns:** `ResponseExample[]` ordered newest first.
 
@@ -288,9 +288,9 @@ const example = await invoke<ResponseExample>('create_response_example', {
 ```
 
 **Parameters:**
-- `requestId: string` — saved request ID
-- `name: string` — user-facing example name
-- `response: ResponseData` — response payload to persist
+- `requestId: string`  -  saved request ID
+- `name: string`  -  user-facing example name
+- `response: ResponseData`  -  response payload to persist
 
 **Returns:** `ResponseExample`
 
@@ -314,8 +314,8 @@ await invoke('move_request', {
 ```
 
 **Parameters:**
-- `id: string` — request ID to move
-- `collectionId: string` — destination collection/folder ID
+- `id: string`  -  request ID to move
+- `collectionId: string`  -  destination collection/folder ID
 
 ### `update_environment`
 Updates an environment's variables.
@@ -344,7 +344,7 @@ await invoke('export_openapi', { collectionId: 'uuid', path: '/path/to/openapi.j
 Exported OpenAPI docs include collection title/description, request paths and methods, query/header parameters, JSON/form/raw request bodies, and supported auth schemes as OpenAPI security schemes. 900API path variables such as `{{id}}` are exported as OpenAPI path variables such as `{id}`.
 
 ### `import_collection_file`
-Imports a collection from a 900API JSON file, creating a new collection with all requests and saved response examples.
+Imports a collection from a 900API JSON file with all requests and saved response examples. An existing portable collection ID is replaced in one transaction. A missing or new portable ID creates a new collection.
 
 ```typescript
 const collection = await invoke<Collection>('import_collection_file', { path: '/path/to/import.json' })
@@ -363,17 +363,17 @@ const output = await invoke<ScriptOutput>('run_test_script', {
 ```
 
 **Parameters:**
-- `script: string` — JavaScript test script
-- `responseBody: string` — response body string
-- `responseStatus: number` — HTTP status code
-- `responseHeaders: string` — JSON string of response headers
+- `script: string`  -  JavaScript test script
+- `responseBody: string`  -  response body string
+- `responseStatus: number`  -  HTTP status code
+- `responseHeaders: string`  -  JSON string of response headers
 
 **Returns:** `ScriptOutput` with `logs: string[]`, `test_results: TestResult[]`, `error: string | null`
 
 **Script API:** The `api900` global object provides:
-- `api900.response.status` — HTTP status code (number)
-- `api900.response.body` — response body (string)
-- `api900.response.headers` — response headers (JSON string)
+- `api900.response.status`  -  HTTP status code (number)
+- `api900.response.body`  -  response body (string)
+- `api900.response.headers`  -  response headers (JSON string)
 
 ### `import_postman`
 Imports a Postman v2.1 collection JSON file, creating a new collection with all requests.
@@ -383,7 +383,7 @@ const collection = await invoke<Collection>('import_postman', { path: '/path/to/
 ```
 
 **Parameters:**
-- `path: string` — path to the Postman collection JSON file
+- `path: string`  -  path to the Postman collection JSON file
 
 **Returns:** `Collection` with all imported requests
 
@@ -395,7 +395,7 @@ const collection = await invoke<Collection>('import_openapi', { path: '/path/to/
 ```
 
 **Parameters:**
-- `path: string` — path to an OpenAPI/Swagger JSON, YAML, or YML file
+- `path: string`  -  path to an OpenAPI/Swagger JSON, YAML, or YML file
 
 **Returns:** `Collection` with all imported operations
 
@@ -468,11 +468,11 @@ const response = await invoke<GrpcResponse>('send_grpc', {
 ```
 
 **Parameters:**
-- `address: string` — host:port (e.g., `localhost:50051`)
-- `serviceMethod: string` — gRPC path (e.g., `/package.Service/Method`)
-- `bodyHex: string` — hex-encoded protobuf message bytes
-- `headers: KeyValue[]` — gRPC metadata
-- `useTls: boolean` — use TLS (https) or plaintext h2c
+- `address: string`  -  host:port (e.g., `localhost:50051`)
+- `serviceMethod: string`  -  gRPC path (e.g., `/package.Service/Method`)
+- `bodyHex: string`  -  hex-encoded protobuf message bytes
+- `headers: KeyValue[]`  -  gRPC metadata
+- `useTls: boolean`  -  use TLS (https) or plaintext h2c
 
 **Returns:** `GrpcResponse` with `status`, `grpc_status`, `grpc_message`, `body_hex`, `body_size`, `time_ms`, `headers`, `trailers`
 
@@ -518,10 +518,10 @@ await invoke('mock_start', {
 ```
 
 **Parameters:**
-- `port: number` — local port to listen on
-- `bind_host?: string` — optional IP address; defaults to `127.0.0.1`, use `0.0.0.0` only when LAN access is intentional
-- `cors_permissive?: boolean` — defaults to `false`
-- `routes: MockRoute[]` — mock response routes
+- `port: number`  -  local port to listen on
+- `bind_host?: string`  -  optional IP address; defaults to `127.0.0.1`, use `0.0.0.0` only when LAN access is intentional
+- `cors_permissive?: boolean`  -  defaults to `false`
+- `routes: MockRoute[]`  -  mock response routes
 
 ### `mock_stop`
 Stops a running mock server.
@@ -572,16 +572,20 @@ Exports a collection as JSON to the sync directory.
 
 ```typescript
 const path = await invoke<string>('sync_export_collection', {
-  collection: { name: 'My API', description: null, requests: [], exported_at: '...', version: '1.0' }
+  collectionId: 'collection-uuid'
 })
 ```
 
+The command reads the collection, requests, scripts, settings, and response examples from SQLite, writes a `900api.collection/v1` JSON file to the configured sync directory, and returns the file path.
+
 ### `sync_import_collection`
-Imports a collection from a JSON file.
+Imports a collection file from the configured sync directory into SQLite.
 
 ```typescript
-const collection = await invoke<ExportCollection>('sync_import_collection', { filePath: '/path/to/collection.json' })
+const collection = await invoke<Collection>('sync_import_collection', { name: 'My_API-collection-id' })
 ```
+
+`name` is the file stem returned by `sync_list_collections`. A file with the same portable collection ID replaces that collection in one database transaction. A file with no ID, or an ID not present in the destination database, creates a new collection. If its portable parent ID is absent in the destination database or would create a parent cycle, the collection is imported at the root.
 
 ### `sync_list_collections`
 Lists collection names in the sync directory.
@@ -657,8 +661,8 @@ await invoke('write_text_file', { path: '/path/to/file.md', content: '...' })
 ```
 
 **Parameters:**
-- `path: string` — file path; parent directory must exist inside the user's home directory
-- `content: string` — text content to write
+- `path: string`  -  file path; parent directory must exist inside the user's home directory
+- `content: string`  -  text content to write
 
 **Returns:** `void`
 
@@ -679,7 +683,7 @@ const plugin = await invoke<Plugin | null>('plugin_get', { id: 'my-plugin' })
 ```
 
 **Parameters:**
-- `id: string` — plugin ID
+- `id: string`  -  plugin ID
 
 **Returns:** `Plugin | null`
 
@@ -693,7 +697,7 @@ const plugin = await invoke<Plugin>('plugin_install', {
 ```
 
 **Parameters:**
-- `manifest: PluginManifest` — plugin manifest
+- `manifest: PluginManifest`  -  plugin manifest
 
 **Returns:** `Plugin`
 
@@ -726,11 +730,11 @@ await invoke('plugin_update_config', { id: 'my-plugin', config: { key: 'value' }
 ```
 
 **Parameters:**
-- `id: string` — plugin ID
-- `config: Record<string, string>` — configuration key-value pairs
+- `id: string`  -  plugin ID
+- `config: Record<string, string>`  -  configuration key-value pairs
 
 ### `team_list_workspaces`
-Lists all local team workspaces. Workspaces, members, roles, shared collection IDs, and shared environment IDs are persisted in local app data. Activity events are an in-session activity feed.
+Lists local workspace planning records. Workspaces, member labels, roles, collection IDs, and environment IDs are persisted in local app data. Activity events are an in-session planning feed. These commands do not provide accounts, invitations, remote access, or live collaboration.
 
 ```typescript
 const workspaces = await invoke<Workspace[]>('team_list_workspaces')
@@ -752,16 +756,16 @@ Creates a new workspace.
 
 ```typescript
 const workspace = await invoke<Workspace>('team_create_workspace', {
-  name: 'My Team',
-  description: 'Team description',
+  name: 'Release planning',
+  description: 'Local roles and collection plan',
   owner: { id: 'user-1', name: 'Alice', email: 'alice@example.com', role: 'owner' }
 })
 ```
 
 **Parameters:**
-- `name: string` — workspace name
-- `description: string | null` — optional description
-- `owner: TeamMember` — workspace owner
+- `name: string`  -  workspace name
+- `description: string | null`  -  optional description
+- `owner: TeamMember`  -  workspace owner
 
 **Returns:** `Workspace`
 
@@ -824,7 +828,7 @@ const collection = await invoke<Collection>('import_postman', { path: '/path/to/
 ```
 
 **Parameters:**
-- `path: string` — path to the Postman collection JSON file
+- `path: string`  -  path to the Postman collection JSON file
 
 **Returns:** `Collection`
 
@@ -853,7 +857,7 @@ interface RequestConfig {
   url: string
   headers: KeyValue[]
   params: KeyValue[]
-  body_type: 'none' | 'json' | 'form_data' | 'x_www_form_urlencoded' | 'raw' | 'binary'
+  body_type: 'none' | 'json' | 'form_data' | 'x_www_form_urlencoded' | 'raw'
   body: string
   auth: AuthConfig
   settings: RequestSettings
@@ -977,6 +981,8 @@ interface SavedRequest {
   body: string
   auth_type: string
   auth_config: string  // JSON AuthConfig
+  pre_request_script: string
+  test_script: string
   settings: string     // JSON RequestSettings
   sort_order: number
   created_at: string
@@ -1013,6 +1019,7 @@ interface WsConnectionState {
   id: string
   url: string
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
+  error: string | null
   messages: WsMessage[]
 }
 
@@ -1028,6 +1035,7 @@ interface SseConnectionState {
   id: string
   url: string
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
+  error: string | null
   event_count: number
 }
 
@@ -1074,7 +1082,8 @@ interface SyncConfig {
   author_email: string
 }
 
-interface ExportRequest {
+interface PortableRequest {
+  id: string | null
   name: string
   method: string
   url: string
@@ -1083,15 +1092,33 @@ interface ExportRequest {
   body_type: string
   body: string
   auth_type: string
-  auth_config: string
+  auth_config: Record<string, unknown>
+  pre_request_script: string
+  test_script: string
+  settings: Record<string, unknown>
+  sort_order: number
+  response_examples: PortableResponseExample[]
 }
 
-interface ExportCollection {
+interface PortableCollection {
+  schema: '900api.collection/v1'
+  id: string | null
   name: string
   description: string | null
-  requests: ExportRequest[]
-  exported_at: string
-  version: string
+  parent_id: string | null
+  sort_order: number
+  exported_at: string | null
+  requests: PortableRequest[]
+}
+
+interface PortableResponseExample {
+  name: string
+  status: number
+  status_text: string
+  headers: Record<string, string>
+  body: string
+  time_ms: number
+  size_bytes: number
 }
 
 interface GitStatus {

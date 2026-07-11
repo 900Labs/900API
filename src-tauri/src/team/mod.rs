@@ -86,13 +86,8 @@ impl TeamManager {
     }
 
     pub fn set_storage_path(&self, path: PathBuf) -> Result<(), TeamError> {
-        if path.exists() {
-            let content = std::fs::read_to_string(&path)?;
-            if !content.trim().is_empty() {
-                let persisted: Vec<Workspace> = serde_json::from_str(&content)?;
-                *self.workspaces.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
-            }
-        }
+        let persisted: Vec<Workspace> = crate::persistence::load_json_or_default(&path)?;
+        *self.workspaces.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
         *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
         Ok(())
     }
@@ -104,11 +99,8 @@ impl TeamManager {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(path) = path {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
             let json = serde_json::to_string_pretty(workspaces)?;
-            std::fs::write(path, json)?;
+            crate::persistence::atomic_write(&path, json.as_bytes())?;
         }
         Ok(())
     }

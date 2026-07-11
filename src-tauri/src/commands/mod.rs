@@ -127,6 +127,20 @@ where
     }
 }
 
+fn portable_collection(
+    db: &Database,
+    collection_id: &str,
+) -> Result<api900_core::format::CollectionFile, crate::db::DbError> {
+    let collection = db.get_collection(collection_id)?;
+    let requests = db.list_requests(collection_id)?;
+    let mut response_examples = std::collections::HashMap::new();
+    for request in &requests {
+        response_examples.insert(request.id.clone(), db.list_response_examples(&request.id)?);
+    }
+    export::collection_to_file(&collection, &requests, &response_examples)
+        .map_err(|error| crate::db::DbError::NotFound(error.to_string()))
+}
+
 #[tauri::command]
 pub fn list_collections(state: tauri::State<'_, AppState>) -> Result<Vec<Collection>, String> {
     with_db(&state, |db| db.list_collections())
@@ -351,23 +365,11 @@ pub fn export_collection(
     path: String,
 ) -> Result<(), String> {
     with_db(&state, |db| {
-        let mut response_examples = std::collections::HashMap::new();
-        let collections = db.list_collections()?;
-        let collection = collections
-            .into_iter()
-            .find(|c| c.id == collection_id)
-            .ok_or_else(|| crate::db::DbError::NotFound(format!("Collection {}", collection_id)))?;
-        let requests = db.list_requests(&collection_id)?;
-        for request in &requests {
-            response_examples.insert(request.id.clone(), db.list_response_examples(&request.id)?);
-        }
-        export::export_collection_with_examples(
-            &collection,
-            &requests,
-            &response_examples,
-            std::path::Path::new(&path),
-        )
-        .map_err(|e| crate::db::DbError::NotFound(e.to_string()))
+        let portable = portable_collection(db, &collection_id)?;
+        let json = api900_core::format::to_pretty_json(&portable)
+            .map_err(|error| crate::db::DbError::NotFound(error.to_string()))?;
+        std::fs::write(std::path::Path::new(&path), json)
+            .map_err(|error| crate::db::DbError::NotFound(error.to_string()))
     })
 }
 
@@ -397,44 +399,7 @@ pub fn import_collection_file(
     with_db(&state, |db| {
         let imported = export::import_collection(std::path::Path::new(&path))
             .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
-
-        let collection = db.create_collection(&imported.name, imported.description.as_deref())?;
-
-        for req in &imported.requests {
-            let saved_request = db.create_request_with_settings(
-                &collection.id,
-                &req.name,
-                &req.method,
-                &req.url,
-                &req.headers,
-                &req.params,
-                &req.body_type,
-                &req.body,
-                &req.auth_type,
-                &req.auth_config,
-                &req.pre_request_script,
-                &req.test_script,
-                if req.settings.trim().is_empty() {
-                    "{}"
-                } else {
-                    &req.settings
-                },
-            )?;
-            for example in &req.response_examples {
-                db.create_response_example(
-                    &saved_request.id,
-                    &example.name,
-                    example.status,
-                    &example.status_text,
-                    &example.headers,
-                    &example.body,
-                    example.time_ms,
-                    example.size_bytes,
-                )?;
-            }
-        }
-
-        Ok(collection)
+        db.import_collection_file(&imported)
     })
 }
 
@@ -556,7 +521,10 @@ pub fn sync_set_config(
     state: tauri::State<'_, AppState>,
     config: crate::sync::SyncConfig,
 ) -> Result<(), String> {
-    state.sync_manager.set_config(config).map_err(|e| e.to_string())
+    state
+        .sync_manager
+        .set_config(config)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -567,8 +535,9 @@ pub fn sync_get_config(state: tauri::State<'_, AppState>) -> Option<crate::sync:
 #[tauri::command]
 pub fn sync_export_collection(
     state: tauri::State<'_, AppState>,
-    collection: crate::sync::ExportCollection,
+    collection_id: String,
 ) -> Result<String, String> {
+    let collection = with_db(&state, |db| portable_collection(db, &collection_id))?;
     state
         .sync_manager
         .export_collection(&collection)
@@ -579,12 +548,13 @@ pub fn sync_export_collection(
 #[tauri::command]
 pub fn sync_import_collection(
     state: tauri::State<'_, AppState>,
-    file_path: String,
-) -> Result<crate::sync::ExportCollection, String> {
-    state
+    name: String,
+) -> Result<Collection, String> {
+    let imported = state
         .sync_manager
-        .import_collection(&file_path)
-        .map_err(|e| e.to_string())
+        .import_collection(&name)
+        .map_err(|e| e.to_string())?;
+    with_db(&state, |db| db.import_collection_file(&imported))
 }
 
 #[tauri::command]

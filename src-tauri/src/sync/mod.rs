@@ -1,3 +1,4 @@
+use api900_core::format::{parse_collection, to_pretty_json, CollectionFile};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -9,6 +10,8 @@ pub enum SyncError {
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
+    #[error("Collection format error: {0}")]
+    Format(#[from] api900_core::format::FormatError),
     #[error("No sync directory configured")]
     NoSyncDir,
     #[error("Git error: {0}")]
@@ -37,13 +40,8 @@ impl SyncManager {
     }
 
     pub fn set_storage_path(&self, path: PathBuf) -> Result<(), SyncError> {
-        if path.exists() {
-            let content = std::fs::read_to_string(&path)?;
-            if !content.trim().is_empty() {
-                let config: SyncConfig = serde_json::from_str(&content)?;
-                *self.config.lock().unwrap_or_else(|e| e.into_inner()) = Some(config);
-            }
-        }
+        let config: Option<SyncConfig> = crate::persistence::load_json_or_default(&path)?;
+        *self.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
         *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
         Ok(())
     }
@@ -55,11 +53,8 @@ impl SyncManager {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(path) = path {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
             let json = serde_json::to_string_pretty(config)?;
-            std::fs::write(path, json)?;
+            crate::persistence::atomic_write(&path, json.as_bytes())?;
         }
         Ok(())
     }
@@ -77,7 +72,7 @@ impl SyncManager {
             .clone()
     }
 
-    pub fn export_collection(&self, collection: &ExportCollection) -> Result<PathBuf, SyncError> {
+    pub fn export_collection(&self, collection: &CollectionFile) -> Result<PathBuf, SyncError> {
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
         let config = config.as_ref().ok_or(SyncError::NoSyncDir)?;
 
@@ -87,18 +82,34 @@ impl SyncManager {
         let safe_name = collection
             .name
             .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-        let file_path = dir.join(format!("{}.json", safe_name));
+        let stable_id = collection
+            .id
+            .as_deref()
+            .unwrap_or("collection")
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+            .take(12)
+            .collect::<String>();
+        let file_path = dir.join(format!("{}-{}.json", safe_name, stable_id));
 
-        let json = serde_json::to_string_pretty(collection)?;
-        std::fs::write(&file_path, json)?;
+        let json = to_pretty_json(collection)?;
+        crate::persistence::atomic_write(&file_path, json.as_bytes())?;
 
         Ok(file_path)
     }
 
-    pub fn import_collection(&self, file_path: &str) -> Result<ExportCollection, SyncError> {
+    pub fn import_collection(&self, name: &str) -> Result<CollectionFile, SyncError> {
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err(SyncError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid synced collection name",
+            )));
+        }
+        let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let config = config.as_ref().ok_or(SyncError::NoSyncDir)?;
+        let file_path = PathBuf::from(&config.directory).join(format!("{}.json", name));
         let content = std::fs::read_to_string(file_path)?;
-        let collection: ExportCollection = serde_json::from_str(&content)?;
-        Ok(collection)
+        Ok(parse_collection(&content)?)
     }
 
     pub fn list_collections(&self) -> Result<Vec<String>, SyncError> {
@@ -151,6 +162,13 @@ impl SyncManager {
         let config = config.as_ref().ok_or(SyncError::NoSyncDir)?;
 
         let dir = PathBuf::from(&config.directory);
+
+        if !dir.exists() {
+            return Ok(GitStatus {
+                is_repo: false,
+                changed_files: Vec::new(),
+            });
+        }
 
         let output = std::process::Command::new("git")
             .args(["status", "--porcelain"])
@@ -283,28 +301,6 @@ impl SyncManager {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExportCollection {
-    pub name: String,
-    pub description: Option<String>,
-    pub requests: Vec<ExportRequest>,
-    pub exported_at: String,
-    pub version: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExportRequest {
-    pub name: String,
-    pub method: String,
-    pub url: String,
-    pub headers: Vec<crate::models::KeyValue>,
-    pub params: Vec<crate::models::KeyValue>,
-    pub body_type: String,
-    pub body: String,
-    pub auth_type: String,
-    pub auth_config: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitStatus {
     pub is_repo: bool,
     pub changed_files: Vec<String>,
@@ -336,15 +332,18 @@ mod tests {
 
     #[test]
     fn test_export_collection_serialization() {
-        let collection = ExportCollection {
+        let collection = CollectionFile {
+            schema: api900_core::format::COLLECTION_SCHEMA.to_string(),
+            id: None,
             name: "Test API".to_string(),
             description: Some("Test description".to_string()),
+            parent_id: None,
+            sort_order: 0,
             requests: vec![],
-            exported_at: "2024-01-01T00:00:00Z".to_string(),
-            version: "1.0".to_string(),
+            exported_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
         let json = serde_json::to_string(&collection).unwrap();
-        let deserialized: ExportCollection = serde_json::from_str(&json).unwrap();
+        let deserialized: CollectionFile = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, "Test API");
     }
 
@@ -353,5 +352,28 @@ mod tests {
         let manager = SyncManager::new();
         let result = manager.list_collections();
         assert!(matches!(result, Err(SyncError::NoSyncDir)));
+    }
+
+    #[test]
+    fn malformed_config_is_backed_up_without_blocking_initialization() {
+        let path =
+            std::env::temp_dir().join(format!("900api-sync-config-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, "{broken").unwrap();
+
+        let manager = SyncManager::new();
+        manager.set_storage_path(path.clone()).unwrap();
+
+        assert!(manager.get_config().is_none());
+        assert!(!path.exists());
+        let prefix = format!("{}.", path.file_name().unwrap().to_string_lossy());
+        let backups = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+        for backup in backups {
+            let _ = std::fs::remove_file(backup.path());
+        }
     }
 }

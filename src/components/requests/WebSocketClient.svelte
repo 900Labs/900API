@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke, listen } from '../../lib/tauri'
+  import { createConnectionLifecycle } from '../../lib/connectionCleanup'
   import { Plug, Unplug, Send, Trash2 } from '@lucide/svelte'
 
   type WsMessage = {
@@ -14,6 +15,7 @@
     id: string
     url: string
     status: 'connecting' | 'connected' | 'disconnected' | 'error'
+    error: string | null
     messages: WsMessage[]
   }
 
@@ -22,8 +24,10 @@
   let messages = $state<WsMessage[]>([])
   let status = $state<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
   let connectionId = $state<string | null>(null)
+  let error = $state<string | null>(null)
   let unlistenState: (() => void) | null = null
   let unlistenMessage: (() => void) | null = null
+  const lifecycle = createConnectionLifecycle('ws_disconnect')
 
   const statusColors: Record<string, string> = {
     disconnected: 'text-text-muted',
@@ -34,39 +38,55 @@
 
   async function connect() {
     if (!url.trim()) return
-    connectionId = crypto.randomUUID()
+    const id = crypto.randomUUID()
+    connectionId = id
     messages = []
+    error = null
     status = 'connecting'
 
-    // Listen for state changes
-    unlistenState = await listen<WsConnectionState>(`ws-${connectionId}-state`, (event) => {
+    const stateListener = await listen<WsConnectionState>(`ws-${id}-state`, (event) => {
+      if (lifecycle.isDestroyed() || connectionId !== id) return
       status = event.payload.status as typeof status
+      error = event.payload.error
     })
+    if (lifecycle.isDestroyed() || connectionId !== id) {
+      stateListener()
+      return
+    }
+    unlistenState = stateListener
 
-    // Listen for messages
-    unlistenMessage = await listen<WsMessage>(`ws-${connectionId}-message`, (event) => {
-      messages = [...messages, event.payload]
+    const messageListener = await listen<WsMessage>(`ws-${id}-message`, (event) => {
+      if (lifecycle.isDestroyed() || connectionId !== id) return
+      messages = [...messages, event.payload].slice(-500)
     })
+    if (lifecycle.isDestroyed() || connectionId !== id) {
+      messageListener()
+      stateListener()
+      if (unlistenState === stateListener) unlistenState = null
+      return
+    }
+    unlistenMessage = messageListener
 
-    try {
-      await invoke('ws_connect', { id: connectionId, url })
-    } catch (e) {
+    const result = await lifecycle.establish(id, () => invoke('ws_connect', { id, url }))
+    if (!result.active && result.error && !lifecycle.isDestroyed() && connectionId === id) {
       status = 'error'
-      console.error('WebSocket connect failed:', e)
+      error = String(result.error)
     }
   }
 
   async function disconnect() {
-    if (!connectionId) return
+    const id = connectionId
+    if (!id) return
+    connectionId = null
     try {
-      await invoke('ws_disconnect', { id: connectionId })
+      await lifecycle.cancel(id)
     } catch (e) {
-      console.error('WebSocket disconnect failed:', e)
+      if (!lifecycle.isDestroyed()) error = String(e)
     }
+    if (lifecycle.isDestroyed()) return
     status = 'disconnected'
     if (unlistenState) { unlistenState(); unlistenState = null }
     if (unlistenMessage) { unlistenMessage(); unlistenMessage = null }
-    connectionId = null
   }
 
   async function sendMessage() {
@@ -75,7 +95,7 @@
       await invoke('ws_send', { id: connectionId, message })
       message = ''
     } catch (e) {
-      console.error('WebSocket send failed:', e)
+      error = String(e)
     }
   }
 
@@ -92,6 +112,9 @@
     return () => {
       if (unlistenState) unlistenState()
       if (unlistenMessage) unlistenMessage()
+      const id = connectionId
+      connectionId = null
+      lifecycle.destroy(id)
     }
   })
 </script>
@@ -130,6 +153,10 @@
       </button>
     {/if}
   </div>
+
+  {#if error}
+    <div class="border-b border-border bg-error/10 px-3 py-2 text-sm text-error" role="alert">{error}</div>
+  {/if}
 
   <!-- Messages -->
   <div class="flex-1 overflow-y-auto p-3">

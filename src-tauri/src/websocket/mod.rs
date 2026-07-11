@@ -30,6 +30,7 @@ pub struct WsConnectionState {
     pub id: String,
     pub url: String,
     pub status: String, // "connecting" | "connected" | "disconnected" | "error"
+    pub error: Option<String>,
     pub messages: Vec<WsMessage>,
 }
 
@@ -65,6 +66,7 @@ pub async fn connect_websocket(
             id: id.clone(),
             url: url.clone(),
             status: "connecting".to_string(),
+            error: None,
             messages: vec![],
         },
     );
@@ -79,6 +81,7 @@ pub async fn connect_websocket(
                     id: id.clone(),
                     url: url.clone(),
                     status: "error".to_string(),
+                    error: Some(e.to_string()),
                     messages: vec![],
                 },
             );
@@ -101,6 +104,7 @@ pub async fn connect_websocket(
                     id: id.clone(),
                     url: url.clone(),
                     status: "connected".to_string(),
+                    error: None,
                     messages: vec![],
                 },
                 tx,
@@ -115,6 +119,7 @@ pub async fn connect_websocket(
             id: id.clone(),
             url: url.clone(),
             status: "connected".to_string(),
+            error: None,
             messages: vec![],
         },
     );
@@ -148,6 +153,7 @@ pub async fn connect_websocket(
             let mut connections = manager_for_write.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(conn) = connections.get_mut(&id_for_write) {
                 conn.state.messages.push(ws_msg);
+                trim_messages(&mut conn.state.messages);
             }
         }
     });
@@ -185,12 +191,14 @@ pub async fn connect_websocket(
                             let _ = app_clone.emit(&state_event, &conn.state.clone());
                         }
                         conn.state.messages.push(ws_msg);
+                        trim_messages(&mut conn.state.messages);
                     }
                 }
                 Err(e) => {
                     let mut connections = manager_clone.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(conn) = connections.get_mut(&id_clone) {
                         conn.state.status = "error".to_string();
+                        conn.state.error = Some(e.to_string());
                         let state_event = format!("ws-{}-state", id_clone);
                         let _ = app_clone.emit(&state_event, &conn.state.clone());
                     }
@@ -206,6 +214,13 @@ pub async fn connect_websocket(
     });
 
     Ok(())
+}
+
+fn trim_messages(messages: &mut Vec<WsMessage>) {
+    const MAX_MESSAGES: usize = 500;
+    if messages.len() > MAX_MESSAGES {
+        messages.drain(..messages.len() - MAX_MESSAGES);
+    }
 }
 
 pub fn send_websocket_message(

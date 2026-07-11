@@ -31,7 +31,7 @@
   ]
 
   let showLocaleMenu = $state(false)
-  let appVersion = $state('0.1.1')
+  let appVersion = $state('0.2.0')
 
   invoke<string>('get_app_version')
     .then((version) => (appVersion = version))
@@ -43,6 +43,8 @@
     <button
       class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors {activeView === item.view ? 'bg-accent text-white' : 'text-text-muted hover:bg-surface-hover hover:text-text'}"
       onclick={() => (activeView = item.view)}
+      aria-label={$t(item.labelKey)}
+      title={$t(item.labelKey)}
     >
       <item.icon class="h-5 w-5 shrink-0" />
       <span class="hidden lg:inline">{$t(item.labelKey)}</span>
@@ -57,6 +59,7 @@
             <button
               class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors {$locale === l.value ? 'bg-accent text-white' : 'text-text-muted hover:bg-surface-hover'}"
               onclick={() => { locale.set(l.value); showLocaleMenu = false }}
+              aria-label={`Use ${l.label}`}
             >
               <span>{l.flag}</span>
               <span>{l.label}</span>
@@ -67,6 +70,8 @@
       <button
         class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
         onclick={() => (showLocaleMenu = !showLocaleMenu)}
+        aria-label="Choose language"
+        title="Choose language"
       >
         <Globe class="h-5 w-5 shrink-0" />
         <span class="hidden lg:inline">{locales.find((l) => l.value === $locale)?.label ?? 'English'}</span>

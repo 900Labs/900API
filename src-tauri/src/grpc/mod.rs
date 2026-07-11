@@ -50,8 +50,14 @@ pub async fn send_grpc_unary(
 
     // Build headers
     let mut header_map = HeaderMap::new();
-    header_map.insert("Content-Type", "application/grpc".parse().unwrap());
-    header_map.insert("TE", "trailers".parse().unwrap());
+    header_map.insert(
+        reqwest::header::CONTENT_TYPE,
+        reqwest::header::HeaderValue::from_static("application/grpc"),
+    );
+    header_map.insert(
+        reqwest::header::TE,
+        reqwest::header::HeaderValue::from_static("trailers"),
+    );
 
     for h in headers {
         if h.enabled && !h.key.is_empty() {

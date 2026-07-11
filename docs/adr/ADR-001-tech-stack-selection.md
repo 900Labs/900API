@@ -1,38 +1,29 @@
-# ADR-001: Tech Stack Selection
+# ADR 001: Technology Stack
 
-## Date
-2026-06-29
+Date: 2026-06-29
 
-## Status
-Accepted
+Status: Accepted
 
 ## Context
 
-900API needs a desktop application stack that:
-- Runs on older hardware (4-year-old laptops, 4GB RAM)
-- Produces small binaries for download in low-bandwidth regions
-- Works completely offline
-- Matches the 900 Labs ecosystem conventions (900Invoice, 900Word)
+900API needs a cross-platform desktop interface, a reliable local request engine, low runtime overhead, and a contributor workflow that can produce Windows, Linux, and macOS builds from one codebase. It should remain useful on older hardware and after the initial download when internet access is intermittent.
 
-Options considered:
-1. **Electron + React** — Industry standard for API clients (Postman, Insomnia, Bruno). But ~150MB binaries, ~500MB RAM. Too heavy for target hardware.
-2. **Tauri v2 + Svelte 5** — Native WebView, ~15MB binaries, ~100MB RAM. Matches ecosystem. Excellent for older hardware.
-3. **Pure native (Qt/GTK)** — Lightest option but requires platform-specific UI code and doesn't match ecosystem conventions.
+The main options were Electron with a web framework, Tauri with a web framework, and separate native interfaces for each platform.
 
 ## Decision
 
-Use **Tauri v2 + Rust + Svelte 5 + TailwindCSS v4**.
+Use Tauri 2, Rust, Svelte 5, and Tailwind CSS.
 
-This matches the 900 Labs ecosystem (900Invoice, 900Word) and provides:
-- ~15MB binary vs ~150MB (Electron)
-- ~100MB RAM vs ~500MB (Electron)
-- Shared conventions, libraries, and contributor base
-- Rust backend for HTTP engine performance and safety
-- Svelte 5 Runes for minimal frontend runtime
+- Tauri uses the operating-system WebView instead of packaging a separate browser engine.
+- Rust provides the HTTP, persistence, scripting, and local server boundaries.
+- Svelte provides a compact reactive interface without requiring separate platform implementations.
+- The same repository can build desktop packages and a standalone Rust CLI.
+
+No fixed binary size, memory, startup, or latency number is promised by this decision. Those values depend on platform, build target, WebView, and workload and must be measured when they are used in release claims.
 
 ## Consequences
 
-- Contributors must know Rust and Svelte (smaller pool than React)
-- Platform-specific WebView differences require testing on all platforms
-- Tauri v2 is newer than Electron — fewer community plugins
-- All ecosystem benefits (shared patterns, shared docs, shared contributors) outweigh the costs
+- Contributors need Rust and Svelte knowledge.
+- WebView behavior needs platform testing.
+- Native packaging and signing differ by operating system.
+- Shared request and collection behavior must live below the interface layer so the CLI and desktop app do not diverge.

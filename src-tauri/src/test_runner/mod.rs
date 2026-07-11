@@ -95,7 +95,10 @@ pub struct TestRunResult {
 }
 
 impl TestRequest {
-    fn to_request_config(&self, env_vars: &[crate::models::EnvironmentVariable]) -> RequestConfig {
+    fn to_request_config(
+        &self,
+        env_vars: &[crate::models::EnvironmentVariable],
+    ) -> Result<RequestConfig, String> {
         let method = match self.method.to_uppercase().as_str() {
             "GET" => HttpMethod::GET,
             "POST" => HttpMethod::POST,
@@ -104,7 +107,7 @@ impl TestRequest {
             "DELETE" => HttpMethod::DELETE,
             "HEAD" => HttpMethod::HEAD,
             "OPTIONS" => HttpMethod::OPTIONS,
-            _ => HttpMethod::GET,
+            other => return Err(format!("Unsupported HTTP method: {other}")),
         };
 
         let body_type = match self.body_type.as_str() {
@@ -112,11 +115,11 @@ impl TestRequest {
             "form_data" => crate::models::BodyType::FormData,
             "x_www_form_urlencoded" => crate::models::BodyType::XWwwFormUrlencoded,
             "raw" => crate::models::BodyType::Raw,
-            "binary" => crate::models::BodyType::Binary,
-            _ => crate::models::BodyType::None,
+            "none" | "" => crate::models::BodyType::None,
+            other => return Err(format!("Unsupported request body type: {other}")),
         };
 
-        RequestConfig {
+        Ok(RequestConfig {
             method,
             url: crate::http::variables::resolve_variables(&self.url, env_vars),
             headers: crate::http::variables::resolve_key_values(&self.headers, env_vars),
@@ -125,7 +128,7 @@ impl TestRequest {
             body: crate::http::variables::resolve_variables(&self.body, env_vars),
             auth: crate::http::variables::resolve_auth_config(&self.auth, env_vars),
             settings: Default::default(),
-        }
+        })
     }
 }
 
@@ -162,7 +165,20 @@ pub async fn run_test_suite(
         }
     }
 
-    let config = suite.request.to_request_config(env_vars);
+    let config = match suite.request.to_request_config(env_vars) {
+        Ok(config) => config,
+        Err(error) => {
+            return TestSuiteResult {
+                suite_id: suite.id.clone(),
+                suite_name: suite.name.clone(),
+                passed: false,
+                assertions: vec![],
+                response_status: 0,
+                response_time_ms: 0,
+                error: Some(error),
+            }
+        }
+    };
 
     let response = match http::send_request(&config).await {
         Ok(r) => r,
@@ -485,16 +501,16 @@ mod tests {
             },
             EnvironmentVariable {
                 key: "name".to_string(),
-                value: "Samir".to_string(),
+                value: "Example".to_string(),
                 enabled: true,
             },
         ];
 
-        let config = request.to_request_config(&vars);
+        let config = request.to_request_config(&vars).unwrap();
         assert_eq!(config.url, "https://api.example.com/users");
         assert_eq!(config.headers[0].value, "Bearer secret");
         assert_eq!(config.params[0].value, "active");
-        assert_eq!(config.body, "{\"name\":\"Samir\"}");
+        assert_eq!(config.body, "{\"name\":\"Example\"}");
         assert_eq!(config.auth.token, "secret");
     }
 }

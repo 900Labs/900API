@@ -1,49 +1,55 @@
 # Privacy Model
 
-## Core Guarantees
+900API does not require an account and does not contain telemetry, advertising, hosted sync, remote logging, crash reporting, or an automatic update service.
 
-1. **No cloud connections** — The only network calls are API requests you explicitly make. 900API never connects to any 900 Labs server, analytics service, or third-party API.
+## Data Kept on the Device
 
-2. **No accounts** — No login, no registration, no authentication with any server. The app works entirely without internet after download.
+The desktop app keeps working data in its operating-system application data directory:
 
-3. **No telemetry** — Zero analytics, tracking, remote logging, crash reporting, or usage statistics. We do not know you exist.
+- SQLite database with collections, saved requests, response examples, environments, request history, and settings
+- Git Sync configuration
+- plugin manifest metadata
+- local workspace planning metadata
 
-4. **Local storage only** — All data (collections, environments, history, settings) is stored in a local SQLite file at `{APP_DATA_DIR}/900api.db`. No data is transmitted anywhere unless you explicitly export it.
+Optional JSON state uses recoverable file writes. A malformed optional file is preserved as a timestamped corrupt backup and the app continues with defaults.
 
-5. **No third-party services** — No CDN dependencies at runtime, no external fonts, no external resources loaded in the WebView.
+The app can keep HTTP cookies locally when a request explicitly enables the cookie jar. Cookie persistence is off by default.
 
-## Data Flow
+## Data That Can Leave the Device
 
-```
-User Input → Svelte UI → Tauri IPC → Rust Backend
-                                        ├── HTTP Engine → Target API (user-initiated only)
-                                        └── SQLite → Local file (no network)
-```
+Data leaves the device only through an action the user initiates or configures:
 
-The only outbound network traffic is HTTP/HTTPS requests to the API endpoints you explicitly configure and send. These requests go directly from the Rust `reqwest` client to the target URL — they do not pass through any 900 Labs infrastructure.
+- sending REST, GraphQL, WebSocket, SSE, or gRPC traffic to a chosen endpoint
+- exposing a mock server to the LAN after changing the default bind setting
+- exporting a collection, environment, response, documentation file, or other local content
+- committing or pushing collection files through a configured Git repository
+- using a configured HTTP proxy
 
-## What We Don't Do
+900API sends request data directly from the local Rust process. It does not proxy requests through 900 Labs infrastructure.
 
-- We don't collect your email, name, or any personal information
-- We don't track which APIs you test
-- We don't store your API keys, tokens, or secrets anywhere except your local machine
-- We don't send crash reports
-- We don't use cookies
-- We don't load external resources (fonts, scripts, stylesheets)
-- We don't integrate with any analytics platform
+## Credentials
+
+Literal API keys, tokens, passwords, and private URLs can be stored in local requests, environments, history snapshots, exported collections, generated snippets, and documentation. 900API does not claim to be a secret manager.
+
+For repositories and shared exports:
+
+- reference environment variables such as `{{token}}` instead of storing literal values
+- review exported JSON, cURL, generated code, and documentation before sharing
+- keep private environment files outside version control
+- remove sensitive history entries when they are no longer needed
+
+## Runtime Resources
+
+The application bundles its interface resources. It does not load remote fonts, scripts, stylesheets, or analytics resources into the WebView.
 
 ## Verification
 
-The privacy gate script (`scripts/verify-public-release.sh`) checks for:
-- Hardcoded secrets in source code
-- Telemetry/analytics code patterns
-- Hardcoded local paths that could leak developer information
+Run:
 
-Run it before any release:
 ```bash
 ./scripts/verify-public-release.sh
 ```
 
-## Export Safety
+The gate scans every tracked regular file and every untracked, nonignored regular file, regardless of its name or extension. This includes environment files, key files, text files, extensionless files, source, configuration, scripts, public documentation, and GitHub templates. Binary detection keeps non-text payloads from producing noisy false failures. The gate checks text files for known credential formats, likely assigned credentials, personal local paths, known developer identifiers, unintended email addresses, telemetry dependencies, and em dashes. A disposable self-test proves that representative file types are included without leaving credential fixtures in the working tree. Pattern scanning reduces accidental disclosure but does not replace human review.
 
-When you export collections, environments, or generated documentation, the exported files may contain sensitive data (API keys, tokens, URLs). Generated documentation writes are restricted to an existing parent directory inside the user's home directory and refuse symbolic-link targets. Be careful when sharing exported files or committing them to version control - use environment variables for secrets and never commit `.env` files.
+The gate checks file content only. It does not inspect commit authors, committer identities, commit messages, branch names, tag annotations, remotes, or earlier Git history. Publication owners must review that metadata separately. The release preparation process does not rewrite Git history automatically.

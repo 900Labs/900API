@@ -1,0 +1,12 @@
+[package]
+name = "api900-core"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Shared collection format and script runtime for 900API"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+boa_engine = { workspace = true }

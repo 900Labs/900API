@@ -40,7 +40,7 @@ pub fn resolve_with_map(input: &str, map: &HashMap<&str, &str>) -> String {
                     changed = true;
                     start = open_abs + value.len();
                 } else {
-                    // Variable not found — skip past this occurrence
+                    // Variable not found, so skip past this occurrence.
                     start = close_abs + 2;
                 }
             } else {

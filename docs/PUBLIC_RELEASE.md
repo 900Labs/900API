@@ -1,44 +1,70 @@
-# Public Release Checklist
+# Public Releases
 
-Before changing repository visibility or publishing a release, verify:
+900API follows semantic versioning. The first public release prepared by this repository is `v0.2.0`.
 
-## Repository
-- [ ] `README.md` is accurate and up-to-date
-- [ ] `CONTRIBUTING.md` reflects current process
-- [ ] `SECURITY.md` is accurate
-- [ ] `LICENSE` file is present and correct (MIT)
-- [ ] `.gitignore` covers all build artifacts
-- [ ] No hardcoded local paths in source code
-- [ ] No hardcoded secrets in source code
+## Before Creating a Tag
 
-## Documentation
-- [ ] `docs/README.md` index is complete
-- [ ] `docs/ARCHITECTURE.md` is current
-- [ ] `docs/API.md` documents all Tauri commands
-- [ ] `docs/PRIVACY_MODEL.md` is accurate
-- [ ] `docs/THREAT_MODEL.md` is current
-- [ ] `docs/QUALITY_GATE.md` reflects current checks
-- [ ] `docs/SPRINT_PROCESS.md` is current
-- [ ] `docs/ROADMAP.md` is up-to-date
-- [ ] All ADRs are complete
+1. Confirm the worktree contains only intended release changes.
+2. Run `./scripts/verify-local.sh`.
+3. Run `npm audit --audit-level=high`.
+4. Run `cargo audit` and review every warning.
+5. Build and open a native bundle on the current platform.
+6. Confirm the version is `0.2.0` in npm, both Rust crates, the shared core crate, Tauri configuration, and the changelog.
+7. Review README, support, security, contribution, issue, and pull request text as it appears on GitHub.
+8. Confirm repository About text and topics match `docs/GITHUB_METADATA.md`.
+9. Confirm CI passes on the release commit.
+10. Review commit authors, committer identities, commit messages, branches, tags, and remotes separately from the file privacy scan.
 
-## Code Quality
-- [ ] `./scripts/verify-local.sh` passes
-- [ ] `./scripts/verify-public-release.sh` passes
-- [ ] `npm audit --audit-level=high` reports zero high or critical vulnerabilities
-- [ ] `cargo audit` has no blocking vulnerabilities beyond documented allowed transitive warnings
-- [ ] `npm run tauri:build` produces the platform app bundle
-- [ ] On macOS, `npm run tauri:build:dmg` produces the release DMG without Finder/AppleScript automation
-- [ ] No compiler warnings (Rust)
-- [ ] No TypeScript errors or warnings
-- [ ] No `unwrap()` or `expect()` in production Rust code
+Do not create the tag if any required check fails.
 
-## CI/CD
-- [ ] `.github/workflows/ci.yml` is configured
-- [ ] CI passes on `main` branch
+## Tag Workflow
 
-## Privacy
-- [ ] No telemetry or analytics code
-- [ ] No third-party network calls
-- [ ] No external resources loaded at runtime
-- [ ] All data storage is local (SQLite)
+Tags matching `v*` trigger `.github/workflows/release.yml`. Before any asset is published, the workflow requires the tag to equal `v` plus the version in Tauri configuration, `package.json`, and every 900API Cargo package. A malformed or mismatched tag stops the workflow. The workflow then uses the official `tauri-apps/tauri-action@v1` matrix pattern to build:
+
+- macOS arm64
+- macOS x86_64
+- Ubuntu 22.04 x86_64
+- Windows x86_64
+
+When all platform jobs finish, a final job downloads the release assets, creates `SHA256SUMS.txt`, and uploads it to the release.
+
+Create the annotated tag only from the reviewed release commit:
+
+```bash
+git tag -a v0.2.0 -m "900API 0.2.0"
+git push origin v0.2.0
+```
+
+The control tower owns these commands and all GitHub settings changes.
+
+## Verify a Download
+
+Download the artifact and `SHA256SUMS.txt` from the same release. On macOS or Linux:
+
+```bash
+shasum -a 256 <artifact>
+```
+
+On Windows PowerShell:
+
+```powershell
+Get-FileHash <artifact> -Algorithm SHA256
+```
+
+Compare the result with the matching checksum entry.
+
+## Signing Status
+
+The initial automated release artifacts are unsigned unless repository signing secrets are added before the tag is pushed.
+
+- macOS builds use an ad-hoc signing identity so Apple Silicon bundles retain valid bundle structure after download. Ad-hoc signing is not Developer ID signing and is not notarization.
+- Windows builds are not Authenticode-signed without a code-signing certificate.
+- Linux packages are not distribution-repository signed.
+
+Document these limits in the release notes. Do not describe unsigned artifacts as trusted or notarized. Code signing and notarization are a later release improvement.
+
+## Repository Publication
+
+Before changing visibility to public, verify that the release commit and tag contain no private paths, credentials, personal emails, private working notes, or local build artifacts. Set the GitHub About description, website, and topics from `docs/GITHUB_METADATA.md`. Enable issues and discussions only if maintainers are ready to respond under `SUPPORT.md`.
+
+The privacy script scans file content that is tracked or eligible for commit. It does not inspect Git object metadata or history. The control tower must separately review commit authors, committer identities, commit messages, branches, tags, and remotes. This release preparation does not rewrite history; any metadata remediation belongs to the publication owner.

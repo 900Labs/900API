@@ -1,80 +1,66 @@
 # Contributing to 900API
 
-We welcome contributions from developers worldwide — especially those in the regions 900API serves. Every line of code from a developer in Lagos, Nairobi, Accra, or Mumbai makes this tool better for the people it's built for.
+900API is community-maintained software from 900 Labs. Contributions are welcome from any region and experience level. Reports from low-bandwidth networks, intermittent connections, older hardware, and less common operating-system setups are especially useful because those environments are part of the product requirement.
 
-## Setup
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Set Up the Project
+
+You need Rust 1.88 or newer, Node.js 22, Git, ripgrep, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system.
 
 ```bash
 git clone https://github.com/900Labs/900API.git
 cd 900API
-npm install
-cargo tauri dev
+npm ci
+npm run tauri:dev
 ```
 
-Prerequisites:
-- Rust 1.88+ — [rustup.rs](https://rustup.rs)
-- Node.js 20.19+ — [nodejs.org](https://nodejs.org)
-- Tauri v2 system dependencies — [v2.tauri.app/start/prerequisites](https://v2.tauri.app/start/prerequisites/)
+Use `npm run dev` only for browser layout work. Backend commands require Tauri.
 
-## Coding Standards
+## Choose Work
 
-### Rust
-- No `unwrap()` or `expect()` in production code — use proper error handling with `thiserror` and `Result`
-- All public functions must have rustdoc comments
-- Follow `cargo fmt` formatting (enforced in CI)
-- Follow `cargo clippy` lints (enforced in CI)
+- Search existing issues before opening or implementing a duplicate.
+- For a substantial change, open an issue describing the user problem and proposed boundary.
+- Keep pull requests focused. Separate unrelated cleanup from behavior changes.
+- Do not add hosted accounts, telemetry, analytics, or a required cloud service.
 
-### Svelte / TypeScript
-- Use Svelte 5 Runes syntax (`$state`, `$derived`, `$props`, `$effect`)
-- Use TypeScript for all new files
-- Follow existing naming conventions
-- No `any` types without justification
+## Code Expectations
 
-### CSS
-- Use TailwindCSS utility classes
-- Use the theme variables defined in `app.css` (`--color-bg`, `--color-surface`, etc.)
-- Dark theme is the default
+Rust changes should use `Result` and meaningful error messages at runtime boundaries. Avoid `unwrap()` and `expect()` in production paths where failure can come from user input, files, state, or the network.
 
-## Sprint Rules
+Svelte changes should use the existing Svelte 5 and TypeScript patterns. Keep controls accessible at the 900px minimum width and test both the desktop runtime and browser preview when changing the Tauri wrapper.
 
-900API is developed in sprints. Each sprint has a defined scope and must pass review before the next sprint begins.
+Collection format changes belong in `crates/900api-core`. Desktop export, Git Sync, and CLI must not grow separate schemas.
 
-1. **Sprint scope** is defined in the plan and tracked in `docs/sprints/`
-2. **Sprint review** must pass all quality gate checks (see [QUALITY_GATE.md](docs/QUALITY_GATE.md))
-3. **Sprint record** is written to `docs/sprints/sprint-N.md` before sprint closure
-4. **Squash-merge** policy: all PRs are squash-merged to keep history clean
+Update documentation in the same pull request when behavior, commands, setup, supported formats, or release requirements change.
 
-## PR Process
+## Run the Gate
 
-1. Create a feature branch: `git checkout -b feature/your-feature`
-2. Make your changes following the coding standards above
-3. Run the quality gate: `./scripts/verify-local.sh`
-4. If adding user-facing behavior, update matching documentation
-5. Open a PR with a clear description of what and why
-6. Ensure CI passes
-7. Address review feedback
-8. Squash-merge on approval
+```bash
+./scripts/verify-local.sh
+```
 
-## Documentation Updates
+The gate formats and lints Rust, performs a clean npm install, runs frontend and Rust tests, checks TypeScript and Svelte, builds the frontend, and scans public files for privacy leaks.
 
-Contributions must include matching documentation updates when:
-- Behavior or workflows change
-- Public APIs (Tauri commands) are added or modified
-- Contributor expectations change
-- Architecture decisions are made (write an ADR in `docs/adr/`)
+For dependency changes, also run:
+
+```bash
+npm audit --audit-level=high
+cargo audit
+```
+
+## Pull Requests
+
+1. Create a branch from current `main`.
+2. Add focused tests for the behavior and failure path.
+3. Run the full local gate.
+4. Complete the pull request template with verification evidence and screenshots for visible changes.
+5. Wait for CI and review before merging.
+
+Maintainers may ask for a smaller patch when the proposed scope raises review or regression risk.
 
 ## Privacy and Security
 
-- **No telemetry, analytics, or tracking** — ever
-- **No network calls** except user-initiated API requests
-- **No data collection** — all data stays local
-- If you find a vulnerability, email security@900labs.com (see [SECURITY.md](SECURITY.md))
+Never commit real API keys, tokens, customer URLs, personal filesystem paths, private collection exports, environment files, or local databases.
 
-## Quick Contribution Ideas
-
-- Add a translation for your language to `src/i18n/`
-- Report bugs in your operating environment
-- Improve documentation clarity
-- Add import/export format support
-- Improve test assertion library
-- Add keyboard shortcuts
+Do not report vulnerabilities in a public issue. Follow [SECURITY.md](SECURITY.md) and contact `security@900labs.com`.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '../../lib/tauri'
+  import { save } from '@tauri-apps/plugin-dialog'
   import {
     Code2,
     Copy,
@@ -55,7 +56,7 @@
     url: string
     headers: KeyValue[]
     params: KeyValue[]
-    body_type: 'none' | 'json' | 'form_data' | 'x_www_form_urlencoded' | 'raw' | 'binary'
+    body_type: 'none' | 'json' | 'form_data' | 'x_www_form_urlencoded' | 'raw'
     body: string
     auth: AuthConfig
     settings: RequestSettings
@@ -169,7 +170,7 @@
   let { embedded = false }: { embedded?: boolean } = $props()
 
   const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
-  const bodyTypes: RequestConfig['body_type'][] = ['none', 'json', 'form_data', 'x_www_form_urlencoded', 'raw', 'binary']
+  const bodyTypes: RequestConfig['body_type'][] = ['none', 'json', 'form_data', 'x_www_form_urlencoded', 'raw']
   const authTypes: AuthType[] = ['none', 'basic', 'bearer', 'api_key', 'o_auth2', 'o_auth1', 'aws_sig_v4', 'hawk']
   const configTabs: RequestDraft['configTab'][] = ['params', 'headers', 'body', 'auth', 'scripts', 'settings']
   const responseTabs: { value: ResponseTab; label: string }[] = [
@@ -306,6 +307,7 @@
   let params = $state<KeyValue[]>([])
   let bodyType = $state<RequestConfig['body_type']>('none')
   let body = $state('')
+  let bodyFields = $state<KeyValue[]>([])
   let authType = $state<AuthType>('none')
   let authUsername = $state('')
   let authPassword = $state('')
@@ -399,6 +401,39 @@
         value: typeof row.value === 'string' ? row.value : '',
         enabled: typeof row.enabled === 'boolean' ? row.enabled : true,
       }))
+  }
+
+  function parseBodyFields(value: string): KeyValue[] {
+    if (!value.trim()) return []
+    try {
+      return normalizeRows(JSON.parse(value))
+    } catch {
+      return []
+    }
+  }
+
+  function selectBodyType(nextType: RequestConfig['body_type']) {
+    bodyType = nextType
+    if (nextType === 'form_data' || nextType === 'x_www_form_urlencoded') {
+      bodyFields = parseBodyFields(body)
+      body = JSON.stringify(bodyFields)
+    }
+    markDirty()
+  }
+
+  function syncBodyFields() {
+    body = JSON.stringify(bodyFields)
+    markDirty()
+  }
+
+  function addBodyField() {
+    bodyFields = [...bodyFields, { key: '', value: '', enabled: true }]
+    syncBodyFields()
+  }
+
+  function removeBodyField(index: number) {
+    bodyFields = bodyFields.filter((_, rowIndex) => rowIndex !== index)
+    syncBodyFields()
   }
 
   function normalizeAuthConfig(value: unknown): AuthConfig {
@@ -501,6 +536,7 @@
     params = cloneRows(draft.params)
     bodyType = draft.bodyType
     body = draft.body
+    bodyFields = parseBodyFields(draft.body)
     authType = draft.authType
     authUsername = draft.authUsername
     authPassword = draft.authPassword
@@ -861,7 +897,6 @@
     if (!response) return
     responseActionMessage = null
     try {
-      const { save } = await import('@tauri-apps/plugin-dialog')
       const path = await save({
         defaultPath: `response-${response.status}.${responseFileExtension()}`,
         filters: [
@@ -1104,7 +1139,12 @@
   }
 
   function bodyIsSendable(config: RequestConfig): boolean {
-    return config.body_type !== 'none' && config.body_type !== 'binary' && config.body.trim().length > 0
+    return config.body_type !== 'none' && config.body.trim().length > 0
+  }
+
+  function requestBodyFields(config: RequestConfig): KeyValue[] {
+    if (config.body_type !== 'form_data' && config.body_type !== 'x_www_form_urlencoded') return []
+    return parseBodyFields(config.body).filter((field) => field.enabled && field.key.trim())
   }
 
   function jsonBodyExpression(config: RequestConfig): string {
@@ -1120,6 +1160,8 @@
 
   function pythonBodyArgument(config: RequestConfig): string {
     if (!bodyIsSendable(config)) return ''
+    if (config.body_type === 'form_data') return 'files=files'
+    if (config.body_type === 'x_www_form_urlencoded') return 'data=form_data'
     if (config.body_type === 'json') {
       try {
         return `json=${JSON.stringify(JSON.parse(config.body), null, 2)}`
@@ -1145,23 +1187,45 @@
       lines.push(`  -H ${shellQuote(`${header.key}: ${header.value}`)}`)
     }
     if (bodyIsSendable(config)) {
-      lines.push(`  --data ${shellQuote(config.body)}`)
+      const fields = requestBodyFields(config)
+      if (config.body_type === 'form_data') {
+        for (const field of fields) lines.push(`  --form ${shellQuote(`${field.key}=${field.value}`)}`)
+      } else if (config.body_type === 'x_www_form_urlencoded') {
+        for (const field of fields) lines.push(`  --data-urlencode ${shellQuote(`${field.key}=${field.value}`)}`)
+      } else {
+        lines.push(`  --data ${shellQuote(config.body)}`)
+      }
     }
     return lines.join(' \\\n')
   }
 
   function buildFetchSnippet(config: RequestConfig = buildCurrentRequestConfig()): string {
     const configHeaders = requestHeaders(config)
-    const lines = [
+    const fields = requestBodyFields(config)
+    const lines: string[] = []
+    if (config.body_type === 'form_data') {
+      lines.push('const formData = new FormData()')
+      for (const field of fields) {
+        lines.push(`formData.append(${JSON.stringify(field.key)}, ${JSON.stringify(field.value)})`)
+      }
+      lines.push('')
+    }
+    lines.push(
       `const response = await fetch(${JSON.stringify(withQueryParams(config.url, requestParams(config)))}, {`,
       `  method: ${JSON.stringify(config.method)},`,
-    ]
+    )
 
     if (configHeaders.length > 0) {
       lines.push(`  headers: ${jsonLiteral(rowRecord(configHeaders)).replace(/\n/g, '\n  ')},`)
     }
     if (bodyIsSendable(config)) {
-      lines.push(`  body: ${jsonBodyExpression(config)},`)
+      if (config.body_type === 'form_data') {
+        lines.push('  body: formData,')
+      } else if (config.body_type === 'x_www_form_urlencoded') {
+        lines.push(`  body: new URLSearchParams(${jsonLiteral(rowRecord(fields))}),`)
+      } else {
+        lines.push(`  body: ${jsonBodyExpression(config)},`)
+      }
     }
     lines.push('})')
     lines.push('')
@@ -1184,24 +1248,35 @@
         : '',
     ].filter(Boolean)
 
-    return [
+    const fields = requestBodyFields(config)
+    const lines = [
       'import requests',
       '',
       `url = ${JSON.stringify(config.url)}`,
       configHeaders.length > 0 ? `headers = ${jsonLiteral(rowRecord(configHeaders))}` : 'headers = {}',
       configParams.length > 0 ? `params = ${jsonLiteral(rowRecord(configParams))}` : 'params = {}',
+    ]
+    if (config.body_type === 'form_data') {
+      lines.push(`files = ${jsonLiteral(Object.fromEntries(fields.map((field) => [field.key, [null, field.value]])))}`)
+    } else if (config.body_type === 'x_www_form_urlencoded') {
+      lines.push(`form_data = ${jsonLiteral(rowRecord(fields))}`)
+    }
+    lines.push(
       '',
       `response = requests.request(${args.join(', ')})`,
       'print(response.status_code)',
       'print(response.text)',
-    ].join('\n')
+    )
+    return lines.join('\n')
   }
 
   function buildGoSnippet(config: RequestConfig = buildCurrentRequestConfig()): string {
     const configHeaders = requestHeaders(config)
     const hasBody = bodyIsSendable(config)
     const imports = ['"fmt"', '"io"', '"net/http"']
-    if (hasBody) imports.push('"strings"')
+    if (hasBody && config.body_type !== 'form_data') imports.push('"strings"')
+    if (config.body_type === 'form_data') imports.push('"bytes"', '"mime/multipart"')
+    if (config.body_type === 'x_www_form_urlencoded') imports.push('"net/url"')
 
     const lines = [
       'package main',
@@ -1213,7 +1288,22 @@
       'func main() {',
       '  var requestBody io.Reader',
     ]
-    if (hasBody) {
+    const fields = requestBodyFields(config)
+    if (config.body_type === 'form_data') {
+      lines.push('  var multipartBody bytes.Buffer')
+      lines.push('  multipartWriter := multipart.NewWriter(&multipartBody)')
+      for (const field of fields) {
+        lines.push(`  if err := multipartWriter.WriteField(${JSON.stringify(field.key)}, ${JSON.stringify(field.value)}); err != nil { panic(err) }`)
+      }
+      lines.push('  if err := multipartWriter.Close(); err != nil { panic(err) }')
+      lines.push('  requestBody = &multipartBody')
+    } else if (config.body_type === 'x_www_form_urlencoded') {
+      lines.push('  formData := url.Values{}')
+      for (const field of fields) {
+        lines.push(`  formData.Add(${JSON.stringify(field.key)}, ${JSON.stringify(field.value)})`)
+      }
+      lines.push('  requestBody = strings.NewReader(formData.Encode())')
+    } else if (hasBody) {
       lines.push(`  requestBody = strings.NewReader(${JSON.stringify(config.body)})`)
     }
     lines.push(`  req, err := http.NewRequest(${JSON.stringify(config.method)}, ${JSON.stringify(withQueryParams(config.url, requestParams(config)))}, requestBody)`)
@@ -1222,6 +1312,11 @@
     lines.push('  }')
     for (const header of configHeaders) {
       lines.push(`  req.Header.Set(${JSON.stringify(header.key)}, ${JSON.stringify(header.value)})`)
+    }
+    if (config.body_type === 'form_data') {
+      lines.push('  req.Header.Set("Content-Type", multipartWriter.FormDataContentType())')
+    } else if (config.body_type === 'x_www_form_urlencoded') {
+      lines.push('  req.Header.Set("Content-Type", "application/x-www-form-urlencoded")')
     }
     if (config.auth.auth_type === 'basic' && (config.auth.username || config.auth.password)) {
       lines.push(`  req.SetBasicAuth(${JSON.stringify(config.auth.username)}, ${JSON.stringify(config.auth.password)})`)
@@ -1940,21 +2035,47 @@
             {#each bodyTypes as bt (bt)}
               <button
                 class="rounded px-3 py-1 text-xs transition-colors {bodyType === bt ? 'bg-accent text-white' : 'bg-surface text-text-muted hover:text-text'}"
-                onclick={() => { bodyType = bt as typeof bodyType; markDirty() }}
+                onclick={() => selectBodyType(bt)}
               >
                 {bt === 'x_www_form_urlencoded' ? 'x-www-form-urlencoded' : bt === 'form_data' ? 'form-data' : bt}
               </button>
             {/each}
           </div>
-          {#if bodyType !== 'none' && bodyType !== 'binary'}
+          {#if bodyType === 'form_data' || bodyType === 'x_www_form_urlencoded'}
+            <div class="space-y-2">
+              {#each bodyFields as field, i (i)}
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" bind:checked={field.enabled} class="accent-accent" onchange={syncBodyFields} />
+                  <input
+                    type="text"
+                    class="flex-1 rounded border border-border bg-surface px-2 py-1.5 text-sm font-mono outline-none focus:border-accent"
+                    placeholder="Field name"
+                    bind:value={field.key}
+                    oninput={syncBodyFields}
+                  />
+                  <input
+                    type="text"
+                    class="flex-1 rounded border border-border bg-surface px-2 py-1.5 text-sm font-mono outline-none focus:border-accent"
+                    placeholder="Value"
+                    bind:value={field.value}
+                    list="env-variable-suggestions"
+                    oninput={syncBodyFields}
+                  />
+                  <button class="text-text-muted hover:text-error" aria-label="Remove body field" title="Remove body field" onclick={() => removeBodyField(i)}>x</button>
+                </div>
+              {/each}
+              <button class="text-sm text-accent hover:text-accent-hover" onclick={addBodyField}>+ Add Field</button>
+              {#if bodyType === 'form_data'}
+                <p class="text-xs text-text-muted">Multipart fields are text only. File parts are not stored in portable collections.</p>
+              {/if}
+            </div>
+          {:else if bodyType !== 'none'}
             <textarea
               class="h-64 w-full rounded border border-border bg-surface p-3 font-mono text-sm outline-none focus:border-accent"
               placeholder={bodyType === 'json' ? '{\n  "key": "value"\n}' : 'Enter body content...'}
               bind:value={body}
               oninput={markDirty}
             ></textarea>
-          {:else if bodyType === 'binary'}
-            <p class="rounded border border-border bg-surface p-3 text-sm text-text-muted">Binary body selection is planned for the file picker workflow.</p>
           {/if}
         </div>
       {:else if configTab === 'auth'}

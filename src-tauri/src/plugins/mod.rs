@@ -73,13 +73,8 @@ impl PluginManager {
     }
 
     pub fn set_storage_path(&self, path: PathBuf) -> Result<(), PluginError> {
-        if path.exists() {
-            let content = std::fs::read_to_string(&path)?;
-            if !content.trim().is_empty() {
-                let persisted: Vec<Plugin> = serde_json::from_str(&content)?;
-                *self.plugins.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
-            }
-        }
+        let persisted: Vec<Plugin> = crate::persistence::load_json_or_default(&path)?;
+        *self.plugins.lock().unwrap_or_else(|e| e.into_inner()) = persisted;
         *self.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
         Ok(())
     }
@@ -91,11 +86,8 @@ impl PluginManager {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(path) = path {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
             let json = serde_json::to_string_pretty(plugins)?;
-            std::fs::write(path, json)?;
+            crate::persistence::atomic_write(&path, json.as_bytes())?;
         }
         Ok(())
     }

@@ -7,19 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-- Updated the transitive `plist`/`quick-xml` lockfile path so `cargo audit` no longer reports `RUSTSEC-2026-0194` or `RUSTSEC-2026-0195`.
+## [0.2.0] - 2026-07-11
+
+### Added
+- Shared `api900-core` crate with the versioned `900api.collection/v1` format and bounded Boa script runner.
+- Structured editors for text-only multipart fields and URL-encoded request forms.
+- Browser-wrapper unit tests and a CLI process regression test for failing saved scripts.
+- Recoverable atomic persistence for Git Sync settings, plugin manifests, and local workspace plans.
+- GitHub issue forms, pull request template, support guide, code of conduct, and repository metadata guide.
+- Tag-driven release workflow for macOS arm64, macOS x86_64, Ubuntu 22.04, and Windows x86_64, with SHA-256 checksums.
 
 ### Fixed
-- Wired REST pre-request and test scripts into the main workbench send flow through the Rust Boa sandbox.
-- Added saved-request import and local suite persistence to the Test Runner.
-- Routed WebSocket and SSE event listeners through the browser-safe Tauri wrapper.
-- Persisted Git sync configuration, plugin manifests, and team workspaces in local app data files.
-- Aligned app, package, sidebar, browser fallback, and CLI version strings to `0.1.1`.
+- Git Sync now exports actual SQLite collections and imports complete synced collections back into SQLite in one transaction.
+- Portable nested collections import at the root when their parent is absent in the destination database.
+- Desktop export, Git Sync, and CLI now use one compatible collection schema, while legacy string-encoded fields remain importable.
+- The CLI executes saved scripts and exits with code `1` when a script fails, even when the HTTP response is successful.
+- CLI help now lists only implemented export formats.
+- Invalid structured request bodies now return clear errors instead of sending empty forms.
+- Removed unsupported binary body and multipart file claims from the interface and documentation.
+- Malformed optional JSON state is backed up and no longer prevents application startup.
+- Collapsed navigation buttons now have accessible names and tooltips.
+- WebSocket and SSE failures are visible in the interface, and displayed stream history is capped at 500 entries.
+- SSE decoding now preserves fields, UTF-8 values, CRLF boundaries, multi-line data, and final buffered events across arbitrary network chunks.
+- Live WebSocket and SSE backends are disconnected when their interface components are destroyed.
+- CLI reporter and request configuration errors now exit with code `2`, while HTTP and saved-script failures remain exit code `1`.
+- Workspace planning is labeled as local metadata rather than live collaboration.
+
+### Changed
+- Updated all application and package versions to `0.2.0`.
+- Expanded the release gate to enforce Rust formatting, warnings-as-errors Clippy, clean frontend installation, frontend tests, type checks, production build, workspace tests, and privacy scanning.
+- Expanded privacy scanning to tracked source, configuration, scripts, documentation, and GitHub templates.
+- Updated the release matrix to the current Intel macOS runner and added a pre-publication tag and package-version guard.
 
 ### Documentation
-- Clarified that plugin hooks and permissions are persisted manifest metadata in this release, not executable runtime hooks.
-- Updated release-readiness docs for the current audit state and local workflow persistence model.
+- Rewrote the README around the 900 Labs and 900 Open mission, supported workflows, first request, collections, environments, Git Sync, CLI, privacy, and contribution paths.
+- Added truthful unsigned-build, ad-hoc macOS signing, checksum, and release workflow guidance.
+- Removed internal remediation and sprint diary documents from the public documentation set.
 
 ## [0.1.1] - 2026-06-29
 
@@ -38,9 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct stale docs that claimed OpenAPI/cURL import/export and `api900.expect` were implemented
 
 ### Documentation
-- Add AUDIT_REMEDIATION_REPORT.md
-- Update README, SECURITY, API, ARCHITECTURE, THREAT_MODEL, PRIVACY_MODEL docs
-- Update ADR-003 and sprint records 5, 11, 13, 14, 18
+- Update README, security, API, architecture, threat model, and privacy documentation.
 
 ## [0.1.0] - 2026-06-29
 
@@ -57,8 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test runner with assertions (status, header, body, JSON path, response time)
 - Pre-request and test scripts using sandboxed Boa JS engine
 - API documentation generation (Markdown and HTML)
-- Plugin system with manifest-based permissions and lifecycle hooks
-- Team workflows with workspaces, members, roles, and activity tracking
+- Plugin manifest registry with permission and hook metadata
+- Local workspace planning with members, roles, and activity notes
 - Authentication support: Basic, Bearer, API Key, OAuth 1/2, AWS SigV4, Hawk
 - Internationalization (i18n) with 6 locales: English, Spanish, French, German, Japanese, Chinese
 - CLI tool (`900api`) for headless collection execution, export, and docs generation

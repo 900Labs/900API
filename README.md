@@ -1,200 +1,140 @@
 # 900API
 
-**API testing and documentation client — a Postman alternative that respects your privacy.**
+900API is a local-first desktop client for building, sending, testing, and documenting API requests. It supports REST, GraphQL, WebSocket, Server-Sent Events, unary gRPC, local mock servers, collections, environments, saved response examples, and headless collection runs from the command line.
 
-Build, test, and document REST and GraphQL APIs with collections, environments, and automated testing. All offline. All local. No cloud. No accounts. No telemetry.
+No account is required. There is no subscription, telemetry, hosted workspace, or vendor lock-in. Request data stays on your computer unless you choose to send a request, export a file, or push a configured Git repository.
 
-Built by [900 Labs](https://www.900labs.com) — building enterprise-grade open source tools for the 900 million+ people in developing economies who are priced out of the software that modern businesses depend on.
+## Why 900API Exists
 
-## The Problem
+Technology shouldn't have a zip code.
 
-A developer in Lagos testing APIs pays the same $14/month for Postman as a developer in San Francisco — but in an economy where that's 10% of a monthly salary. Existing tools are cloud-first, telemetry-heavy, and bloated for older hardware. Every existing open-source API client is either Electron-based (heavy RAM), browser-only (limited offline), or lacks essential features like GraphQL support and CI/CD integration.
+[900 Labs](https://www.900labs.com) builds enterprise-grade open source tools for more than 900 million people in developing economies who are priced out of modern business software. 900API is part of [900 Open](https://www.900labs.com/impact), an initiative based on four practical principles:
 
-## The Solution
+- Free forever under a permissive license
+- Quality that can support real work
+- Local-first operation for low-bandwidth connections, intermittent internet, and older hardware
+- Open development maintained with the community
 
-900API is a desktop API testing client that works completely offline. It runs on the hardware you already own. No subscriptions. No cloud dependencies. No internet required after the first download.
+900API uses Tauri, Rust, and the operating system WebView so it does not need to bundle a full browser engine. The app is designed to remain useful offline after installation. Network access is used only for endpoints and Git remotes that you configure.
 
-## Features
+## What You Can Do
 
-### Request Builder
-- Integrated REST workbench with collection rail, history rail, variable rail, request tabs, response panel, and active environment selector
-- App menu bar and global command palette for actions, saved requests, collections, environments, and recent history
-- Full HTTP method support: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
-- Request headers, query parameters, and body types (JSON, form-data, x-www-form-urlencoded, raw, binary)
-- Per-request runtime settings for timeout, connect timeout, redirects, SSL verification, proxy URL, and local cookie jar usage
-- Response viewer with status, timing, size, headers, formatted/raw body modes, sandboxed HTML preview, and saved-example comparison
-- Response body search with highlighted matches
-- Save response examples to saved requests for documentation, regression checks, and current-vs-expected comparison
-- Request history (last 500 requests) with full request snapshots for replay
-- Import common cURL commands into editable request tabs
-- Copy/export response body and generate cURL, JavaScript fetch, Python requests, and Go net/http snippets from the active request
+- Send REST requests with query parameters, headers, authentication, JSON, raw text, text-only multipart fields, and URL-encoded forms
+- Organize requests in collections and nested folders
+- Switch between local environments with `{{variable}}` substitution
+- Save response examples and compare later responses
+- Run bounded JavaScript pre-request and test scripts
+- Run exported collections in CI with the `900api` command
+- Query GraphQL APIs and inspect schemas
+- Connect to WebSocket and SSE endpoints with bounded local event history
+- Send unary gRPC requests from raw protobuf bytes or the scalar field helper
+- Run local mock endpoints bound to `127.0.0.1` by default
+- Import Postman, OpenAPI, Swagger, cURL, and 900API collection data where supported by the relevant screen
+- Export portable 900API JSON or OpenAPI 3.0.3 JSON
+- Keep portable collection files in a Git repository without a hosted sync account
 
-### Collections
-- Organize requests into collections and nested folders/subcollections
-- Context menus for creating requests, creating folders, renaming, duplicating requests, exporting, and deleting
-- Drag requests between collections and move collections into or out of folders
-- Git-native JSON export for version control
+Multipart file parts and binary request bodies are not supported in 0.2.0. This avoids storing machine-specific file paths in portable collection files.
 
-### Environments
-- Create and manage multiple environments (dev, staging, prod)
-- Variable resolution with `{{variable_name}}` syntax
-- Active environment selector in the REST workbench
-- Variable autocomplete/copy chips for URL, params, headers, auth values, and request body authoring
+## Install
 
-### GraphQL
-- GraphQL query editor with variables, headers, auth, and response viewer
-- Active environment variable resolution
-- Variables panel for GraphQL variables
-- Schema introspection, query assist, and schema explorer with searchable types, fields, arguments, enums, and root operation insertion
+Download the build for your operating system from the [GitHub Releases page](https://github.com/900Labs/900API/releases). Each release includes a `SHA256SUMS.txt` file when the release workflow completes.
 
-### gRPC
-- Unary gRPC calls over h2c or TLS
-- Raw protobuf hex mode for exact byte-level requests
-- UTF-8 body mode for simple byte payloads
-- `.proto` paste-and-parse helper for package, service, RPC, request message, and scalar field discovery
-- Scalar protobuf field builder that generates request hex for common strings, bytes, numbers, booleans, enums-as-numbers, floats, doubles, and fixed-width fields
-- Response viewer with HTTP/gRPC status, timing, size, hex body, UTF-8 preview, headers, and trailers
+The first public CI builds are unsigned. Windows SmartScreen and macOS Gatekeeper may warn before opening them. macOS builds use an ad-hoc identity so downloaded test builds are not treated as damaged, but they are not Apple-notarized. See [Public Releases](docs/PUBLIC_RELEASE.md) for verification and platform notes.
 
-### Test Scripts
-- Sandboxed JavaScript pre-request and test scripts with runtime limits, saved per request and executed from the Rust sandbox before/after REST sends
-- Assertions for status code, headers, body text, body JSON path, and response time
-- Collection-level test runner with active environment variable resolution, local suite persistence, and saved-request import from collections
+### Build From Source
 
-### Mock Server
-- Local mock routes with configurable method, path, status, headers, body, and delay
-- Binds to `127.0.0.1` by default
-- LAN exposure and permissive CORS are explicit opt-in settings
+You need:
 
-### Import / Export
-- Import 900API native JSON, Postman Collection v2.1, and OpenAPI 3.x / Swagger 2.0 JSON or YAML
-- Export 900API native JSON from the app, including saved response examples
-- Export collections as OpenAPI 3.0.3 JSON from the app
-- CLI export to Postman Collection v2.1 and cURL commands
-- REST workbench cURL import for common commands from browsers, docs pages, Postman, and Insomnia
+- Rust 1.88 or newer
+- Node.js 22
+- The [Tauri 2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system
 
-### Local Workflow State
-- Git sync configuration, installed plugin manifests, and team workspaces persist in local app data files
-- Plugin hooks and permissions are stored as manifest metadata in this release; plugin hook code is not executed at runtime
-
-### CLI Runner
-- `900api run <collection.json>` — headless collection execution for CI/CD
-- Reporter formats: console, JSON, JUnit XML
-- Environment file support: `-e <environment.json>`
-- Exit code 0 on all tests pass, 1 on any failure
-
-### API Documentation
-- Generate static HTML or Markdown API docs from collections
-- Include request details, saved response examples, and descriptions
-- HTML output escapes collection and request content before rendering
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Desktop shell | Tauri v2 |
-| Backend | Rust 1.88+ |
-| Frontend | Svelte 5 (Runes) |
-| Styling | TailwindCSS v4 |
-| Icons | Lucide |
-| Data storage | SQLite (local file) |
-| HTTP engine | `reqwest` (Rust) |
-| Scripting | Sandboxed JS engine (Rust-embedded) |
-
-**Why Tauri v2?** Tauri uses the OS native WebView instead of bundling Chromium (Electron). The result: ~15MB binary vs ~150MB, and ~100MB RAM vs ~500MB. On a 4-year-old laptop with 4 GB of RAM running three browser tabs, this difference is everything.
-
-## Installation
-
-### Releases
-Tagged releases are published on the [releases page](https://github.com/900Labs/900API/releases/latest) when available. Until platform binaries are published, build from source.
-
-### Build from Source
-Prerequisites:
-- Rust 1.88+ — install from [rustup.rs](https://rustup.rs)
-- Node.js 20.19+, 22.12+, or 24+ — install from [nodejs.org](https://nodejs.org)
-- Tauri CLI v2: `cargo install tauri-cli --version "^2"`
-- Tauri v2 system dependencies — see [v2.tauri.app/start/prerequisites](https://v2.tauri.app/start/prerequisites/)
-
-Linux (Ubuntu/Debian):
-```bash
-sudo apt-get update
-sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev librsvg2-dev
-```
-
-Build and run:
 ```bash
 git clone https://github.com/900Labs/900API.git
 cd 900API
-npm install
-npm run tauri:dev        # Run in development mode (hot-reload)
-npm run tauri:build      # Build the platform app bundle
+npm ci
+npm run tauri:dev
 ```
 
-`npm run dev` starts the Svelte/Vite frontend only. It is useful for layout checks in a browser, but request sending, persistence, imports, exports, mocks, sync, and other backend-backed actions require the Tauri bridge from `npm run tauri:dev` or a built desktop app. Browser preview mode now returns empty local data for read-only lists and shows a clear desktop-runtime-required error for backend actions.
+Build a desktop bundle:
 
-Production app bundles are written under `target/release/bundle/`.
-
-macOS release artifacts:
 ```bash
-npm run tauri:build:dmg         # Build 900API.app, then create an AppleScript-free DMG
-npm run tauri:build:native-dmg  # Optional: Tauri's Finder-styled DMG path, requires GUI/Finder automation
+npm run tauri:build
 ```
 
-### CLI Only
+`npm run dev` opens the interface in a normal browser for layout work. Sending requests, local persistence, imports, exports, mocks, and Git operations require `npm run tauri:dev` or a built desktop app.
+
+## Send Your First Request
+
+1. Open **REST** in the left navigation.
+2. Choose `GET` and enter `https://httpbin.org/get`, or use an endpoint you control.
+3. Add query parameters, headers, authentication, or an environment if needed.
+4. Select **Send**.
+5. Review the response status, time, headers, and body.
+6. Select **Save** to add the request to a collection.
+
+For low-bandwidth use, choose a small endpoint for the first test. 900API does not contact a 900 Labs service during this flow.
+
+## Collections, Environments, and Git
+
+Collections store reusable requests, scripts, request settings, and saved response examples in local SQLite. Environments store local values that can be referenced as `{{baseUrl}}`, `{{token}}`, or another key.
+
+The Git Sync screen exports a selected local collection into a versioned `900api.collection/v1` JSON file. Importing a synced file writes the complete collection back into SQLite. Existing collections with the same portable ID are replaced in one database transaction, which keeps Git round trips predictable.
+
+Collection files can contain credentials if you save literal authentication values. Use environment variables for secrets and review files before committing them.
+
+## CLI
+
+Build the runner:
+
 ```bash
 cargo build --release -p api900-cli
-# Binary at target/release/900api
 ```
 
-## Data Storage
+Run a collection exported by the desktop app:
 
-All data is stored locally in a single SQLite file. No cloud. No server.
-- Location: `{APP_DATA_DIR}/900api.db`
-- IDs: UUID v4 for offline-safe creation
+```bash
+./target/release/900api run ./my-collection.json
+./target/release/900api run ./my-collection.json --environment ./environment.json --reporter junit
+```
 
-Your data never leaves your machine unless you explicitly export it.
+The runner resolves variables, sends request headers and parameters, supports portable request body modes and common authentication types, and executes saved scripts in the same bounded Boa sandbox used by the desktop app. Reporter values are `console`, `json`, and `junit`. It exits with code `1` for HTTP failures and thrown saved scripts. It exits with code `2` for malformed files, unknown reporters, invalid request configuration, and other runner input errors.
 
-## Documentation
+Export options:
 
-- [Documentation Index](docs/README.md) — sorted guide to public docs, ADRs, and sprint records
-- [Architecture Overview](docs/ARCHITECTURE.md) — system design, data flow, and offline model
-- [API Documentation](docs/API.md) — complete Tauri command reference
-- [Privacy Model](docs/PRIVACY_MODEL.md) — privacy guarantees and data flow
-- [Threat Model](docs/THREAT_MODEL.md) — security threats and mitigations
-- [Quality Gate](docs/QUALITY_GATE.md) — required pre-merge validation
-- [Sprint Process](docs/SPRINT_PROCESS.md) — sprint workflow and review policy
-- [Roadmap](docs/ROADMAP.md) — feature roadmap and post-MVP plans
-- [UX Remediation Report](docs/UX_REMEDIATION_REPORT.md) — workbench, menus, global search, tabs, collection folders, cURL import, snippets, response search, and variable autocomplete changes
+```bash
+./target/release/900api export ./my-collection.json --format postman --output postman.json
+./target/release/900api export ./my-collection.json --format curl
+./target/release/900api docs ./my-collection.json --format markdown --output API.md
+```
+
+## Local Data and Privacy
+
+The desktop app stores working data in its operating-system application data directory:
+
+- `900api.db` for collections, requests, examples, environments, and history
+- `sync-config.json` for Git Sync settings
+- `plugins.json` for plugin manifest metadata
+- `team-workspaces.json` for local workspace planning metadata
+
+Optional JSON state is written through a recoverable temporary-file flow. If an optional state file is malformed, 900API moves it to a timestamped `.corrupt-*` backup, starts with defaults, and logs the problem.
+
+Read [Privacy Model](docs/PRIVACY_MODEL.md) and [Security Policy](SECURITY.md) before using production credentials.
 
 ## Contributing
 
-We welcome contributions from developers worldwide — especially those in the regions 900API serves. Every line of code from a developer in Lagos, Nairobi, Accra, or Mumbai makes this tool better for the people it's built for.
+Community contributions are welcome, including bug reports from less common operating systems, accessibility fixes, import compatibility, translations, tests, and documentation improvements.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding standards, sprint rules, and the PR process.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), [SUPPORT.md](SUPPORT.md), and the [Documentation Index](docs/README.md). All pull requests must pass:
 
-Quick contribution ideas:
-- Add a translation for your language to `src/i18n/`
-- Report bugs in your operating environment
-- Improve documentation clarity
-- Add import/export format support
+```bash
+./scripts/verify-local.sh
+```
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-You are free to use, modify, and distribute this software — including commercially. You do not owe us anything.
+900API is free software under the [MIT License](LICENSE). You may use, modify, and distribute it, including for commercial work.
 
 ## Security
 
-To report a vulnerability, email security@900labs.com. See [SECURITY.md](SECURITY.md) for the full process.
-
-## Part of the 900 Labs Ecosystem
-
-900API is part of the 900 Labs open-source portfolio:
-- [900PDF](https://github.com/900-labs/900pdf)
-- [900CRM](https://github.com/900-labs/900crm)
-- [900Invoice](https://github.com/900Labs/900Invoice)
-- [900Word](https://github.com/900Labs/900Word)
-- **900API** (this project)
-
-All tools are built on the same Tauri v2 + Rust + Svelte 5 stack. They share conventions, libraries, and the same commitment: free forever, offline-first, open source.
-
-Learn more at [900labs.com/open-source](https://www.900labs.com/open-source).
+Do not open a public issue for a vulnerability or exposed credential. Follow [SECURITY.md](SECURITY.md) and contact `security@900labs.com`.

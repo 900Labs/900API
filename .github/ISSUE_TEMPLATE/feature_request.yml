@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a focused improvement to a real workflow
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user workflow and current limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the smallest useful outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Local-first and hardware constraints
+      description: Note effects on offline use, bandwidth, memory, storage, and platform support.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This does not require telemetry, a hosted account, or a mandatory cloud service.
+          required: true
+        - label: I searched existing issues for a duplicate.
+          required: true

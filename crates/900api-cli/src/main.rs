@@ -1,4 +1,6 @@
-use clap::{Parser, Subcommand};
+use api900_core::format::{parse_collection, CollectionFile, KeyValue, RequestItem};
+use api900_core::scripting::run_test_script;
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -6,8 +8,8 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "900api")]
-#[command(version = "0.1.1")]
-#[command(about = "900API CLI — headless API collection runner for CI/CD")]
+#[command(version)]
+#[command(about = "900API CLI, a headless API collection runner for CI/CD")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -25,15 +27,15 @@ enum Commands {
         environment: Option<PathBuf>,
 
         /// Reporter format: console, json, junit
-        #[arg(short, long, default_value = "console")]
-        reporter: String,
+        #[arg(short, long, value_enum, default_value = "console")]
+        reporter: Reporter,
     },
     /// Export a collection to a different format
     Export {
         /// Path to the collection JSON file
         collection: PathBuf,
 
-        /// Output format: postman, openapi, curl
+        /// Output format: postman, curl
         #[arg(short, long)]
         format: String,
 
@@ -56,12 +58,11 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct CollectionFile {
-    name: String,
-    #[serde(default)]
-    description: Option<String>,
-    requests: Vec<RequestItem>,
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Reporter {
+    Console,
+    Json,
+    Junit,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,27 +75,6 @@ struct EnvironmentFile {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct EnvironmentVariableFile {
-    key: String,
-    value: String,
-    #[serde(default = "default_true")]
-    enabled: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RequestItem {
-    name: String,
-    method: String,
-    url: String,
-    #[serde(default)]
-    headers: Vec<KeyValueFile>,
-    #[serde(default)]
-    body: Option<String>,
-    #[serde(default)]
-    test_script: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct KeyValueFile {
     key: String,
     value: String,
     #[serde(default = "default_true")]
@@ -139,7 +119,7 @@ async fn main() -> ExitCode {
 async fn run_collection(
     collection_path: PathBuf,
     environment_path: Option<PathBuf>,
-    reporter: String,
+    reporter: Reporter,
 ) -> ExitCode {
     let collection_str = match std::fs::read_to_string(&collection_path) {
         Ok(s) => s,
@@ -149,7 +129,7 @@ async fn run_collection(
         }
     };
 
-    let collection: CollectionFile = match serde_json::from_str(&collection_str) {
+    let collection = match parse_collection(&collection_str) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error parsing collection JSON: {}", e);
@@ -184,6 +164,16 @@ async fn run_collection(
         Vec::new()
     };
 
+    for request in &collection.requests {
+        if let Err(error) = validate_request_config(request, &env_vars) {
+            eprintln!(
+                "Invalid request configuration for '{}': {}",
+                request.name, error
+            );
+            return ExitCode::from(2);
+        }
+    }
+
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(30))
@@ -210,8 +200,8 @@ async fn run_collection(
         results.push(result);
     }
 
-    match reporter.as_str() {
-        "json" => {
+    match reporter {
+        Reporter::Json => {
             let json = serde_json::to_string_pretty(
                 &results
                     .iter()
@@ -229,7 +219,7 @@ async fn run_collection(
             .unwrap_or_default();
             println!("{}", json);
         }
-        "junit" => {
+        Reporter::Junit => {
             println!(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
             println!(
                 r#"<testsuite name="{}" tests="{}">"#,
@@ -251,7 +241,7 @@ async fn run_collection(
             }
             println!("</testsuite>");
         }
-        _ => {
+        Reporter::Console => {
             // Console reporter
             for r in &results {
                 let status_icon = if r.passed { "✓" } else { "✗" };
@@ -276,12 +266,166 @@ async fn run_collection(
     }
 }
 
+fn validate_request_config(
+    request: &RequestItem,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<(), String> {
+    let resolved_url = resolve_variables(&request.url, env_vars);
+    reqwest::Url::parse(&resolved_url).map_err(|error| format!("Invalid URL: {error}"))?;
+
+    match request.method.to_ascii_uppercase().as_str() {
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" => {}
+        other => return Err(format!("Unsupported HTTP method: {other}")),
+    }
+
+    for header in request
+        .headers
+        .iter()
+        .filter(|header| header.enabled && !header.key.is_empty())
+    {
+        let key = resolve_variables(&header.key, env_vars);
+        let value = resolve_variables(&header.value, env_vars);
+        reqwest::header::HeaderName::from_bytes(key.as_bytes())
+            .map_err(|error| format!("Invalid header name '{key}': {error}"))?;
+        reqwest::header::HeaderValue::from_str(&value)
+            .map_err(|error| format!("Invalid value for header '{key}': {error}"))?;
+    }
+
+    validate_auth_config(request, env_vars)?;
+    validate_body_config(request, env_vars)?;
+    validate_request_settings(request)?;
+    Ok(())
+}
+
+fn validate_auth_config(
+    request: &RequestItem,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<(), String> {
+    let config = request
+        .auth_config
+        .as_object()
+        .ok_or_else(|| "Authentication configuration must be a JSON object".to_string())?;
+    let value = |key: &str| {
+        config
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(|value| resolve_variables(value, env_vars))
+            .unwrap_or_default()
+    };
+
+    match request.auth_type.as_str() {
+        "" | "none" | "basic" | "bearer" | "o_auth2" => Ok(()),
+        "api_key" => {
+            let name = value("api_key_name");
+            if name.is_empty() {
+                return Err("API key authentication requires an API key name".to_string());
+            }
+            match value("api_key_in").as_str() {
+                "query" => Ok(()),
+                "" | "header" => {
+                    reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+                        format!("Invalid API key header name '{name}': {error}")
+                    })?;
+                    reqwest::header::HeaderValue::from_str(&value("api_key")).map_err(|error| {
+                        format!("Invalid value for API key header '{name}': {error}")
+                    })?;
+                    Ok(())
+                }
+                location => Err(format!(
+                    "API key location must be 'header' or 'query', received '{location}'"
+                )),
+            }
+        }
+        unsupported => Err(format!(
+            "Authentication type '{unsupported}' is not supported by the CLI"
+        )),
+    }
+}
+
+fn validate_body_config(
+    request: &RequestItem,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<(), String> {
+    let body = resolve_variables(&request.body, env_vars);
+    match request.body_type.as_str() {
+        "none" | "raw" => Ok(()),
+        "json" => {
+            if !body.trim().is_empty() {
+                serde_json::from_str::<serde_json::Value>(&body)
+                    .map_err(|error| format!("Invalid JSON request body: {error}"))?;
+            }
+            Ok(())
+        }
+        "form_data" => parse_form_fields(&body, "multipart form-data").map(|_| ()),
+        "x_www_form_urlencoded" => parse_form_fields(&body, "URL-encoded form").map(|_| ()),
+        unsupported => Err(format!("Unsupported request body type: {unsupported}")),
+    }
+}
+
+fn validate_request_settings(request: &RequestItem) -> Result<(), String> {
+    let settings = request
+        .settings
+        .as_object()
+        .ok_or_else(|| "Request settings must be a JSON object".to_string())?;
+    let timeout_ms = optional_u64_setting(settings, "timeout_ms")?.unwrap_or(120_000);
+    if timeout_ms == 0 || timeout_ms > 600_000 {
+        return Err("Request timeout must be between 1 ms and 600000 ms".to_string());
+    }
+    if let Some(connect_timeout_ms) = optional_u64_setting(settings, "connect_timeout_ms")? {
+        if connect_timeout_ms == 0 || connect_timeout_ms > timeout_ms {
+            return Err("Connect timeout must be between 1 ms and the request timeout".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn optional_u64_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<u64>, String> {
+    settings
+        .get(key)
+        .map(|value| {
+            value
+                .as_u64()
+                .ok_or_else(|| format!("Request setting '{key}' must be a positive integer"))
+        })
+        .transpose()
+}
+
 async fn execute_request(
     client: &reqwest::Client,
     req: &RequestItem,
     env_vars: &[EnvironmentVariableFile],
 ) -> TestResult {
+    if let Ok(output) = run_test_script(&req.pre_request_script, "", 0, "{}") {
+        if let Some(error) = output.error {
+            return failed_result(req, 0, 0, format!("Pre-request script failed: {error}"));
+        }
+    } else {
+        return failed_result(
+            req,
+            0,
+            0,
+            "Pre-request script could not be executed".to_string(),
+        );
+    }
+
     let resolved_url = resolve_variables(&req.url, env_vars);
+    let mut url = match reqwest::Url::parse(&resolved_url) {
+        Ok(url) => url,
+        Err(error) => return failed_result(req, 0, 0, format!("Invalid URL: {error}")),
+    };
+    for param in req
+        .params
+        .iter()
+        .filter(|param| param.enabled && !param.key.is_empty())
+    {
+        url.query_pairs_mut().append_pair(
+            &resolve_variables(&param.key, env_vars),
+            &resolve_variables(&param.value, env_vars),
+        );
+    }
     let method = match req.method.to_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
@@ -290,10 +434,14 @@ async fn execute_request(
         "DELETE" => reqwest::Method::DELETE,
         "HEAD" => reqwest::Method::HEAD,
         "OPTIONS" => reqwest::Method::OPTIONS,
-        _ => reqwest::Method::GET,
+        _ => return failed_result(req, 0, 0, format!("Unsupported method: {}", req.method)),
     };
 
-    let mut request = client.request(method, &resolved_url);
+    if let Err(error) = apply_query_auth(req, &mut url, env_vars) {
+        return failed_result(req, 0, 0, error);
+    }
+
+    let mut request = client.request(method, url.clone());
 
     for h in &req.headers {
         if h.enabled && !h.key.is_empty() {
@@ -303,42 +451,204 @@ async fn execute_request(
         }
     }
 
-    if let Some(ref body) = req.body {
-        let resolved_body = resolve_variables(body, env_vars);
-        request = request.body(resolved_body);
+    request = match apply_auth(request, req, env_vars) {
+        Ok(request) => request,
+        Err(error) => return failed_result(req, 0, 0, error),
+    };
+
+    request = match apply_body(request, req, env_vars) {
+        Ok(request) => request,
+        Err(error) => return failed_result(req, 0, 0, error),
+    };
+
+    if let Some(timeout_ms) = req
+        .settings
+        .get("timeout_ms")
+        .and_then(serde_json::Value::as_u64)
+    {
+        if timeout_ms == 0 || timeout_ms > 600_000 {
+            return failed_result(
+                req,
+                0,
+                0,
+                "Request timeout must be between 1 ms and 600000 ms".to_string(),
+            );
+        }
+        request = request.timeout(Duration::from_millis(timeout_ms));
     }
 
     let start = std::time::Instant::now();
     let response = match request.send().await {
         Ok(r) => r,
         Err(e) => {
-            return TestResult {
-                name: req.name.clone(),
-                passed: false,
-                error: Some(e.to_string()),
-                status: 0,
-                time_ms: start.elapsed().as_millis() as u64,
-            };
+            return failed_result(req, 0, start.elapsed().as_millis() as u64, e.to_string());
         }
     };
     let elapsed = start.elapsed();
 
     let status = response.status().as_u16();
-
-    // Basic test: check if status is 2xx
-    let passed = (200..300).contains(&status);
-    let error = if passed {
-        None
-    } else {
-        Some(format!("Expected 2xx, got {}", status))
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.to_string(),
+                value.to_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(error) => {
+            return failed_result(
+                req,
+                status,
+                elapsed.as_millis() as u64,
+                format!("Could not read response body: {error}"),
+            )
+        }
     };
+    let headers_json = serde_json::to_string(&headers).unwrap_or_else(|_| "{}".to_string());
+
+    let mut errors = Vec::new();
+    if !(200..300).contains(&status) {
+        errors.push(format!("Expected 2xx, got {status}"));
+    }
+    match run_test_script(&req.test_script, &body, status, &headers_json) {
+        Ok(output) => {
+            if let Some(error) = output.error {
+                errors.push(format!("Test script failed: {error}"));
+            }
+        }
+        Err(error) => errors.push(format!("Test script could not be executed: {error}")),
+    }
 
     TestResult {
         name: req.name.clone(),
-        passed,
-        error,
+        passed: errors.is_empty(),
+        error: (!errors.is_empty()).then(|| errors.join("; ")),
         status,
         time_ms: elapsed.as_millis() as u64,
+    }
+}
+
+fn apply_auth(
+    mut request: reqwest::RequestBuilder,
+    req: &RequestItem,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<reqwest::RequestBuilder, String> {
+    let value = |key: &str| {
+        req.auth_config
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(|value| resolve_variables(value, env_vars))
+            .unwrap_or_default()
+    };
+    match req.auth_type.as_str() {
+        "" | "none" => {}
+        "basic" => request = request.basic_auth(value("username"), Some(value("password"))),
+        "bearer" => request = request.bearer_auth(value("token")),
+        "o_auth2" => request = request.bearer_auth(value("oauth2_access_token")),
+        "api_key" => {
+            let name = value("api_key_name");
+            if name.is_empty() {
+                return Err("API key authentication requires an API key name".to_string());
+            }
+            let api_key = value("api_key");
+            if value("api_key_in") != "query" {
+                request = request.header(name, api_key);
+            }
+        }
+        unsupported => {
+            return Err(format!(
+                "Authentication type '{unsupported}' is not supported by the CLI"
+            ))
+        }
+    }
+    Ok(request)
+}
+
+fn apply_query_auth(
+    req: &RequestItem,
+    url: &mut reqwest::Url,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<(), String> {
+    if req.auth_type != "api_key" {
+        return Ok(());
+    }
+    let value = |key: &str| {
+        req.auth_config
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(|value| resolve_variables(value, env_vars))
+            .unwrap_or_default()
+    };
+    if value("api_key_in") != "query" {
+        return Ok(());
+    }
+    let name = value("api_key_name");
+    if name.is_empty() {
+        return Err("API key authentication requires an API key name".to_string());
+    }
+    url.query_pairs_mut().append_pair(&name, &value("api_key"));
+    Ok(())
+}
+
+fn apply_body(
+    request: reqwest::RequestBuilder,
+    req: &RequestItem,
+    env_vars: &[EnvironmentVariableFile],
+) -> Result<reqwest::RequestBuilder, String> {
+    let body = resolve_variables(&req.body, env_vars);
+    match req.body_type.as_str() {
+        "none" => Ok(request),
+        "json" => {
+            if !body.trim().is_empty() {
+                serde_json::from_str::<serde_json::Value>(&body)
+                    .map_err(|error| format!("Invalid JSON request body: {error}"))?;
+            }
+            Ok(request
+                .header("Content-Type", "application/json")
+                .body(body))
+        }
+        "raw" => Ok(request.body(body)),
+        "form_data" => {
+            let fields = parse_form_fields(&body, "multipart form-data")?;
+            let form = fields
+                .into_iter()
+                .filter(|field| field.enabled && !field.key.is_empty())
+                .fold(reqwest::multipart::Form::new(), |form, field| {
+                    form.text(field.key, field.value)
+                });
+            Ok(request.multipart(form))
+        }
+        "x_www_form_urlencoded" => {
+            let fields = parse_form_fields(&body, "URL-encoded form")?;
+            let enabled = fields
+                .into_iter()
+                .filter(|field| field.enabled && !field.key.is_empty())
+                .map(|field| (field.key, field.value))
+                .collect::<Vec<_>>();
+            Ok(request.form(&enabled))
+        }
+        unsupported => Err(format!("Unsupported request body type: {unsupported}")),
+    }
+}
+
+fn parse_form_fields(body: &str, label: &str) -> Result<Vec<KeyValue>, String> {
+    if body.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(body).map_err(|error| format!("Invalid {label} fields: {error}"))
+}
+
+fn failed_result(req: &RequestItem, status: u16, time_ms: u64, error: String) -> TestResult {
+    TestResult {
+        name: req.name.clone(),
+        passed: false,
+        error: Some(error),
+        status,
+        time_ms,
     }
 }
 
@@ -382,10 +692,10 @@ fn export_collection(
                                 "raw": r.url,
                                 "url": r.url
                             },
-                            "body": r.body.as_ref().map(|b| {
+                            "body": (!r.body.is_empty()).then(|| {
                                 serde_json::json!({
                                     "mode": "raw",
-                                    "raw": b
+                                    "raw": r.body
                                 })
                             })
                         }
@@ -406,8 +716,8 @@ fn export_collection(
                         ));
                     }
                 }
-                if let Some(ref body) = r.body {
-                    cmd.push_str(&format!(" -d {}", shell_quote(body)));
+                if !r.body.is_empty() {
+                    cmd.push_str(&format!(" -d {}", shell_quote(&r.body)));
                 }
                 curls.push(format!("# {}", r.name));
                 curls.push(cmd);
@@ -550,14 +860,14 @@ fn generate_markdown_docs(collection: &CollectionFile) -> String {
             md.push('\n');
         }
 
-        if let Some(ref body) = req.body {
+        if !req.body.is_empty() {
             md.push_str("**Body:**\n\n");
-            md.push_str(&format!("```json\n{}\n```\n\n", body));
+            md.push_str(&format!("```text\n{}\n```\n\n", req.body));
         }
 
-        if let Some(ref script) = req.test_script {
+        if !req.test_script.is_empty() {
             md.push_str("**Test Script:**\n\n");
-            md.push_str(&format!("```javascript\n{}\n```\n\n", script));
+            md.push_str(&format!("```javascript\n{}\n```\n\n", req.test_script));
         }
 
         md.push_str("---\n\n");
@@ -572,7 +882,7 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str(&format!(
-        "<title>{} — API Documentation</title>\n",
+        "<title>{} | API Documentation</title>\n",
         html_escape(&collection.name)
     ));
     html.push_str("<style>\n");
@@ -633,9 +943,9 @@ fn generate_html_docs(collection: &CollectionFile) -> String {
             html.push_str("</table>\n");
         }
 
-        if let Some(ref body) = req.body {
+        if !req.body.is_empty() {
             html.push_str("<p><strong>Body:</strong></p>\n<pre><code>");
-            html.push_str(&html_escape(body));
+            html.push_str(&html_escape(&req.body));
             html.push_str("</code></pre>\n");
         }
 
@@ -670,19 +980,33 @@ mod tests {
     #[test]
     fn test_generate_html_docs_escapes_user_content() {
         let collection = CollectionFile {
+            schema: api900_core::format::COLLECTION_SCHEMA.to_string(),
+            id: None,
             name: "<script>alert(1)</script>".to_string(),
             description: Some("\"><img src=x onerror=alert(1)>".to_string()),
+            parent_id: None,
+            sort_order: 0,
+            exported_at: None,
             requests: vec![RequestItem {
+                id: None,
                 name: "<b>Create</b>".to_string(),
                 method: "TRACE\"><script>".to_string(),
                 url: "https://example.com/<script>".to_string(),
-                headers: vec![KeyValueFile {
+                headers: vec![KeyValue {
                     key: "X-Test".to_string(),
                     value: "<svg onload=alert(1)>".to_string(),
                     enabled: true,
                 }],
-                body: Some("{\"x\":\"</script>\"}".to_string()),
-                test_script: None,
+                params: Vec::new(),
+                body_type: "json".to_string(),
+                body: "{\"x\":\"</script>\"}".to_string(),
+                auth_type: "none".to_string(),
+                auth_config: serde_json::json!({}),
+                pre_request_script: String::new(),
+                test_script: String::new(),
+                settings: serde_json::json!({}),
+                sort_order: 0,
+                response_examples: Vec::new(),
             }],
         };
 

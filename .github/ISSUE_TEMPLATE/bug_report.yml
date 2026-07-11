@@ -1,0 +1,65 @@
+name: Bug report
+description: Report behavior that is broken or misleading
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, tokens, private URLs, customer data, or local database files.
+  - type: input
+    id: version
+    attributes:
+      label: 900API version
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Ubuntu 22.04 x86_64
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - GitHub release
+        - Built from source
+        - Development mode
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a public test endpoint or local mock when possible.
+      placeholder: |
+        1. Open REST
+        2. Create a GET request
+        3. Select Send
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized error text
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, private URLs, personal paths, and customer data.
+          required: true
+        - label: I searched existing issues for a duplicate.
+          required: true

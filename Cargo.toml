@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/900api-cli"]
+members = ["src-tauri", "crates/900api-cli", "crates/900api-core"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -10,3 +10,4 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+boa_engine = "0.20"

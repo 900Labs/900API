@@ -99,7 +99,7 @@
       const owner: TeamMember = {
         id: crypto.randomUUID(),
         name: 'You',
-        email: 'you@900api.dev',
+        email: '',
         role: 'owner',
         avatar_color: '#6366f1',
         last_active: new Date().toISOString(),
@@ -206,7 +206,7 @@
   <!-- Toolbar -->
   <div class="flex items-center gap-3 border-b border-border p-3">
     <Users class="h-5 w-5 text-text-muted" />
-    <span class="text-sm font-medium">Team Workflows</span>
+    <span class="text-sm font-medium">Local Workspace Planning</span>
     <span class="text-xs text-text-muted">{workspaces.length} workspace(s)</span>
     <div class="flex-1"></div>
     <button
@@ -216,6 +216,10 @@
       <Plus class="h-4 w-4" />
       New Workspace
     </button>
+  </div>
+
+  <div class="border-b border-border bg-surface px-3 py-2 text-xs text-text-muted">
+    Workspaces, member roles, and activity notes stay on this device. This is planning metadata, not live collaboration or account-based sharing.
   </div>
 
   {#if error}
@@ -447,7 +451,7 @@
                       <span class="font-medium text-text">{event.user_name}</span>
                       {' '}{event.action.replace(/_/g, ' ')}{' '}
                       <span class="font-mono">{event.resource_type}</span>
-                      {' '}— {event.resource_name}
+                      {' '}| {event.resource_name}
                     </span>
                   </div>
                 {/each}

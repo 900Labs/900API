@@ -1,5 +1,8 @@
 use crate::models::{Collection, KeyValue, ResponseExample, SavedRequest};
-use serde::{Deserialize, Serialize};
+use api900_core::format::{
+    parse_collection, to_pretty_json, CollectionFile, KeyValue as PortableKeyValue, RequestItem,
+    ResponseExample as PortableResponseExample, COLLECTION_SCHEMA,
+};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,45 +14,8 @@ pub enum ExportError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExportedCollection {
-    pub name: String,
-    pub description: Option<String>,
-    pub requests: Vec<ExportedRequest>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExportedRequest {
-    pub name: String,
-    pub method: String,
-    pub url: String,
-    pub headers: String,
-    pub params: String,
-    pub body_type: String,
-    pub body: String,
-    pub auth_type: String,
-    pub auth_config: String,
-    #[serde(default)]
-    pub pre_request_script: String,
-    #[serde(default)]
-    pub test_script: String,
-    #[serde(default)]
-    pub settings: String,
-    #[serde(default)]
-    pub response_examples: Vec<ExportedResponseExample>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExportedResponseExample {
-    pub name: String,
-    pub status: u16,
-    pub status_text: String,
-    pub headers: String,
-    pub body: String,
-    pub time_ms: u64,
-    pub size_bytes: usize,
+    #[error("Collection format error: {0}")]
+    Format(#[from] api900_core::format::FormatError),
 }
 
 #[allow(dead_code)]
@@ -67,54 +33,84 @@ pub fn export_collection_with_examples(
     response_examples: &HashMap<String, Vec<ResponseExample>>,
     path: &Path,
 ) -> Result<(), ExportError> {
-    let exported = ExportedCollection {
-        name: collection.name.clone(),
-        description: collection.description.clone(),
-        requests: requests
-            .iter()
-            .map(|r| ExportedRequest {
-                name: r.name.clone(),
-                method: r.method.clone(),
-                url: r.url.clone(),
-                headers: r.headers.clone(),
-                params: r.params.clone(),
-                body_type: r.body_type.clone(),
-                body: r.body.clone(),
-                auth_type: r.auth_type.clone(),
-                auth_config: r.auth_config.clone(),
-                pre_request_script: r.pre_request_script.clone(),
-                test_script: r.test_script.clone(),
-                settings: r.settings.clone(),
-                response_examples: response_examples
-                    .get(&r.id)
-                    .map(|examples| {
-                        examples
-                            .iter()
-                            .map(|example| ExportedResponseExample {
-                                name: example.name.clone(),
-                                status: example.status,
-                                status_text: example.status_text.clone(),
-                                headers: example.headers.clone(),
-                                body: example.body.clone(),
-                                time_ms: example.time_ms,
-                                size_bytes: example.size_bytes,
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
-            .collect(),
-    };
-
-    let json = serde_json::to_string_pretty(&exported)?;
+    let exported = collection_to_file(collection, requests, response_examples)?;
+    let json = to_pretty_json(&exported)?;
     std::fs::write(path, json)?;
     Ok(())
 }
 
-pub fn import_collection(path: &Path) -> Result<ExportedCollection, ExportError> {
+pub fn collection_to_file(
+    collection: &Collection,
+    requests: &[SavedRequest],
+    response_examples: &HashMap<String, Vec<ResponseExample>>,
+) -> Result<CollectionFile, ExportError> {
+    Ok(CollectionFile {
+        schema: COLLECTION_SCHEMA.to_string(),
+        id: Some(collection.id.clone()),
+        name: collection.name.clone(),
+        description: collection.description.clone(),
+        parent_id: collection.parent_id.clone(),
+        sort_order: collection.sort_order,
+        exported_at: None,
+        requests: requests
+            .iter()
+            .map(|r| {
+                Ok(RequestItem {
+                    id: Some(r.id.clone()),
+                    name: r.name.clone(),
+                    method: r.method.clone(),
+                    url: r.url.clone(),
+                    headers: parse_portable_key_values(&r.headers)?,
+                    params: parse_portable_key_values(&r.params)?,
+                    body_type: r.body_type.clone(),
+                    body: r.body.clone(),
+                    auth_type: r.auth_type.clone(),
+                    auth_config: parse_json_object(&r.auth_config)?,
+                    pre_request_script: r.pre_request_script.clone(),
+                    test_script: r.test_script.clone(),
+                    settings: parse_json_object(&r.settings)?,
+                    sort_order: r.sort_order,
+                    response_examples: response_examples
+                        .get(&r.id)
+                        .map(|examples| {
+                            examples
+                                .iter()
+                                .map(|example| {
+                                    Ok(PortableResponseExample {
+                                        name: example.name.clone(),
+                                        status: example.status,
+                                        status_text: example.status_text.clone(),
+                                        headers: parse_json_object(&example.headers)?,
+                                        body: example.body.clone(),
+                                        time_ms: example.time_ms,
+                                        size_bytes: example.size_bytes,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, ExportError>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default(),
+                })
+            })
+            .collect::<Result<Vec<_>, ExportError>>()?,
+    })
+}
+
+pub fn import_collection(path: &Path) -> Result<CollectionFile, ExportError> {
     let content = std::fs::read_to_string(path)?;
-    let imported: ExportedCollection = serde_json::from_str(&content)?;
-    Ok(imported)
+    Ok(parse_collection(&content)?)
+}
+
+fn parse_portable_key_values(input: &str) -> Result<Vec<PortableKeyValue>, ExportError> {
+    Ok(serde_json::from_str(input)?)
+}
+
+fn parse_json_object(input: &str) -> Result<Value, ExportError> {
+    if input.trim().is_empty() {
+        Ok(serde_json::json!({}))
+    } else {
+        Ok(serde_json::from_str(input)?)
+    }
 }
 
 pub fn export_openapi_collection(
@@ -562,7 +558,8 @@ mod tests {
             auth_config: "{}".to_string(),
             settings: "{}".to_string(),
             pre_request_script: "var before = api900.response.status;".to_string(),
-            test_script: "if (api900.response.status !== 200) { throw new Error('bad'); }".to_string(),
+            test_script: "if (api900.response.status !== 200) { throw new Error('bad'); }"
+                .to_string(),
             sort_order: 0,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),

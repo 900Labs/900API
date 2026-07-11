@@ -1,34 +1,32 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Supported Versions
 
-To report a security vulnerability, email **security@900labs.com** with:
-- A description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
+Security fixes are applied to the latest public release and the current `main` branch. Older binaries may not receive patches.
 
-We will acknowledge receipt within 48 hours and provide a timeline for a fix within 7 days.
+## Report a Vulnerability
 
-## Disclosure
+Do not open a public GitHub issue for a vulnerability, exposed credential, or private endpoint.
 
-- We follow responsible disclosure
-- We will credit reporters in release notes (unless they prefer to remain anonymous)
-- Please do not publicly disclose vulnerabilities until a fix is released
+Email `security@900labs.com` with:
 
-## Security Architecture
+- affected version and operating system
+- a clear description of the issue
+- minimal reproduction steps or a proof of concept
+- expected impact
+- any suggested mitigation
 
-900API is designed with privacy and security as foundational principles:
+Avoid sending real customer data, production credentials, or unrelated personal information. The maintainers will confirm receipt and coordinate disclosure based on severity and release availability.
 
-- **Offline-first**: No cloud connections. The only network calls are API requests you explicitly make.
-- **No telemetry**: Zero analytics, tracking, or remote logging.
-- **Local storage**: All data in a local SQLite file. No remote data storage.
-- **Sandboxed scripting**: Pre-request and test scripts run in a sandboxed JS engine with no filesystem, network, DOM, `require`, `import`, or `process` access. Loop, recursion, and stack limits are configured before execution.
-- **Local mock server defaults**: Mock servers bind to `127.0.0.1` by default. LAN exposure and permissive CORS are explicit opt-in settings.
-- **Safe generated docs**: HTML documentation exports escape collection, request, header, parameter, body, and auth content before rendering.
-- **Constrained docs writes**: The docs export write command requires an existing parent directory inside the user's home directory and refuses symbolic-link targets.
-- **TLS by default**: All HTTPS requests use Rust's native TLS with certificate validation.
+## Security Boundaries
 
-## Threat Model
+- API traffic goes directly from the local process to endpoints configured by the user.
+- The app has no hosted account service, telemetry, remote logging, or automatic crash reporting.
+- Pre-request and test scripts run in a bounded Boa context without filesystem, network, DOM, process, or module access.
+- Mock servers bind to `127.0.0.1` by default. LAN binding and permissive CORS require explicit settings.
+- HTTPS certificate verification is enabled by default but can be disabled per request.
+- Generated HTML documentation escapes user-controlled content.
+- Portable collection files can contain credentials if users save literal values. They are not encrypted secret containers.
+- Git commands run in the sync directory selected by the user and can contact remotes configured in that repository.
 
-See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the complete threat model.
+See [Threat Model](docs/THREAT_MODEL.md) and [Privacy Model](docs/PRIVACY_MODEL.md) for more detail.

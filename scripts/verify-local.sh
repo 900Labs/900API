@@ -1,54 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== 900API Local Quality Gate ==="
-echo ""
+echo "900API local release gate"
 
-echo "[1/5] Checking Rust compilation..."
-cargo check 2>&1
-if [ $? -ne 0 ]; then
-  echo "FAIL: cargo check failed"
-  exit 1
-fi
-echo "PASS: cargo check"
+echo "[1/10] Rust formatting"
+cargo fmt --all -- --check
 
-echo ""
-echo "[2/5] Checking Rust warnings..."
-WARNINGS=$(cargo check 2>&1 | grep -c "^warning:" || true)
-if [ "$WARNINGS" -gt 0 ]; then
-  echo "FAIL: $WARNINGS Rust warnings found"
-  cargo check 2>&1 | grep "^warning:"
-  exit 1
-fi
-echo "PASS: no Rust warnings"
+echo "[2/10] Rust lint"
+cargo clippy --workspace --all-targets --locked -- -D warnings
 
-echo ""
-echo "[3/5] Checking clippy..."
-CLIPPY=$(cargo clippy 2>&1 | grep -c "^warning:" || true)
-if [ "$CLIPPY" -gt 0 ]; then
-  echo "FAIL: $CLIPPY clippy warnings found"
-  cargo clippy 2>&1 | grep "^warning:"
-  exit 1
-fi
-echo "PASS: no clippy warnings"
+echo "[3/10] Clean frontend install"
+npm ci
 
-echo ""
-echo "[4/5] Checking Svelte/TypeScript..."
-npm run check 2>&1
-if [ $? -ne 0 ]; then
-  echo "FAIL: svelte-check failed"
-  exit 1
-fi
-echo "PASS: svelte-check"
+echo "[4/10] Frontend tests"
+npm test
 
-echo ""
-echo "[5/5] Checking Rust tests..."
-cargo test 2>&1
-if [ $? -ne 0 ]; then
-  echo "FAIL: cargo test failed"
-  exit 1
-fi
-echo "PASS: cargo test"
+echo "[5/10] Svelte and TypeScript checks"
+npm run check
 
-echo ""
-echo "=== All quality gate checks passed ==="
+echo "[6/10] Frontend production build"
+npm run build
+
+echo "[7/10] Rust workspace tests"
+cargo test --workspace --locked
+
+echo "[8/10] Documentation links"
+npm run check:docs
+
+echo "[9/10] Privacy gate self-test"
+./scripts/test-privacy-gate.sh
+
+echo "[10/10] Public release privacy gate"
+./scripts/verify-public-release.sh
+
+echo "900API local release gate passed"

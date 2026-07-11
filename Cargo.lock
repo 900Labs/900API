@@ -117,11 +117,11 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "api900"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
+ "api900-core",
  "axum",
  "base64 0.22.1",
- "boa_engine",
  "chrono",
  "dirs",
  "env_logger",
@@ -149,13 +149,24 @@ dependencies = [
 
 [[package]]
 name = "api900-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
+ "api900-core",
  "clap",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "api900-core"
+version = "0.2.0"
+dependencies = [
+ "boa_engine",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
