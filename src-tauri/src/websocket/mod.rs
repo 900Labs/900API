@@ -36,10 +36,13 @@ pub struct WsConnectionState {
 
 pub struct WsConnection {
     pub state: WsConnectionState,
-    pub tx: tokio::sync::mpsc::UnboundedSender<String>,
+    pub tx: tokio::sync::mpsc::Sender<String>,
 }
 
 pub type WsManager = Arc<Mutex<std::collections::HashMap<String, WsConnection>>>;
+
+const WS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const WS_OUTBOUND_CAPACITY: usize = 256;
 
 pub fn create_ws_manager() -> WsManager {
     Arc::new(Mutex::new(std::collections::HashMap::new()))
@@ -71,10 +74,10 @@ pub async fn connect_websocket(
         },
     );
 
-    // Connect
-    let (ws_stream, _) = match connect_async(&url).await {
-        Ok(s) => s,
-        Err(e) => {
+    // Connect with a timeout so a half-open endpoint cannot hang the caller
+    let (ws_stream, _) = match tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(&url)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
             let _ = app.emit(
                 &format!("ws-{}-state", id),
                 WsConnectionState {
@@ -87,16 +90,37 @@ pub async fn connect_websocket(
             );
             return Err(WsError::Ws(e.to_string()));
         }
+        Err(_) => {
+            let error = format!(
+                "Connection timed out after {} seconds",
+                WS_CONNECT_TIMEOUT.as_secs()
+            );
+            let _ = app.emit(
+                &format!("ws-{}-state", id),
+                WsConnectionState {
+                    id: id.clone(),
+                    url: url.clone(),
+                    status: "error".to_string(),
+                    error: Some(error.clone()),
+                    messages: vec![],
+                },
+            );
+            return Err(WsError::Ws(error));
+        }
     };
 
     let (mut write, mut read) = ws_stream.split();
 
-    // Create channel for sending messages
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    // Bounded channel so a stalled peer cannot grow memory without limit
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(WS_OUTBOUND_CAPACITY);
 
-    // Store connection
+    // Store connection, re-checking for a concurrent connect with the same id
     {
         let mut connections = manager.lock().unwrap_or_else(|e| e.into_inner());
+        if connections.contains_key(&id) {
+            drop(write);
+            return Err(WsError::AlreadyExists(id));
+        }
         connections.insert(
             id.clone(),
             WsConnection {
@@ -160,6 +184,7 @@ pub async fn connect_websocket(
 
     // Spawn task to handle incoming messages
     tokio::spawn(async move {
+        let mut closed_cleanly = false;
         while let Some(msg_result) = read.next().await {
             match msg_result {
                 Ok(msg) => {
@@ -168,7 +193,10 @@ pub async fn connect_websocket(
                         Message::Binary(b) => (format!("[binary: {} bytes]", b.len()), "binary"),
                         Message::Ping(_) => ("[ping]".to_string(), "ping"),
                         Message::Pong(_) => ("[pong]".to_string(), "pong"),
-                        Message::Close(_) => ("[closed]".to_string(), "close"),
+                        Message::Close(_) => {
+                            closed_cleanly = true;
+                            ("[closed]".to_string(), "close")
+                        }
                         _ => continue,
                     };
 
@@ -208,9 +236,23 @@ pub async fn connect_websocket(
             }
         }
 
-        // Clean up on disconnect
+        // Clean up on disconnect, notifying the UI when the stream ended
+        // without a Close frame (e.g. server TCP reset after idle)
         let mut connections = manager_clone.lock().unwrap_or_else(|e| e.into_inner());
-        connections.remove(&id_clone);
+        let mut notify_disconnected = false;
+        if let Some(conn) = connections.get_mut(&id_clone) {
+            if !closed_cleanly && conn.state.status == "connected" {
+                conn.state.status = "disconnected".to_string();
+                notify_disconnected = true;
+            }
+        }
+        let state = connections.remove(&id_clone).map(|conn| conn.state);
+        if notify_disconnected {
+            if let Some(state) = state {
+                let state_event = format!("ws-{}-state", id_clone);
+                let _ = app_clone.emit(&state_event, state);
+            }
+        }
     });
 
     Ok(())
@@ -232,9 +274,14 @@ pub fn send_websocket_message(
     let conn = connections
         .get(id)
         .ok_or_else(|| WsError::NotFound(id.to_string()))?;
-    conn.tx
-        .send(message)
-        .map_err(|e| WsError::Ws(e.to_string()))
+    conn.tx.try_send(message).map_err(|error| match error {
+        tokio::sync::mpsc::error::TrySendError::Full(_) => WsError::Ws(
+            "Outbound message buffer is full; the peer is not consuming messages".to_string(),
+        ),
+        tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+            WsError::Ws("Connection is closed".to_string())
+        }
+    })
 }
 
 pub fn disconnect_websocket(manager: &WsManager, id: &str) -> Result<(), WsError> {

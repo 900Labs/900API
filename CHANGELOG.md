@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed a process-aborting stack overflow when importing OpenAPI documents with self-referencing schemas by adding a depth limit and cycle handling to schema sampling.
+- Made the pre-request/test script engine functional: `console.log/info/warn/error` output and `test(name, condition)` assertions are now captured and reported, with caps on log and result volume.
+- Stopped reporting every failed gRPC call as a success: responses with an empty or malformed body now surface `UNKNOWN` or an HTTP-derived gRPC status instead of a hardcoded `0`, with request timeouts and 50 MB response caps.
+- Fixed silent authentication degradation: invalid URLs, missing credentials, and malformed header values now surface errors instead of sending unauthenticated or unsigned requests.
+- Corrected AWS SigV4 canonical path and query encoding (percent-decoding before canonical re-encoding, sorted parameters) and OAuth 1.0 signing (HMAC-SHA1 per spec, query parameters included, order-independent base string), with golden-value regression tests.
+- Fixed WebSocket and SSE connection hangs with 30-second connect timeouts, and closed the check-then-act race that let concurrent connects with the same id clobber each other.
+- WebSocket now notifies the UI when a stream ends without a Close frame (for example after an idle TCP reset), and outbound messages use a bounded buffer that errors when the peer stops consuming.
+- SSE decoder now rejects streams that send more than 1 MB without a line break instead of growing memory without limit.
+- Numeric assertions (`greater than`/`less than`) now fail with an explanatory message when the compared value is not a number instead of silently comparing against `0`.
+- Export, import, and write commands no longer block the UI thread; blocking file, database, and Git work runs on background tasks, and Postman/OpenAPI imports commit atomically so failures leave no partial collections.
+- Export and import commands validate paths with the same safeguards as file writes (absolute, inside the home directory, no traversal, no symlinks).
+- Git sync stages only exported `*.json` files instead of `git add -A`, so unrelated or untrusted files in the sync directory are never committed.
+- Database serialization failures now surface as serialization errors instead of misleading "not found" messages.
+- Mock server request counter uses an atomic counter.
+- Mock server view no longer leaks a polling timer after unmount and re-syncs running state from the backend on mount.
+- Unhandled promise rejections in team unshare, Git sync, API docs export, and clipboard copy paths now surface errors in the UI.
+
+### Security
+- Removed `'unsafe-inline'` from the Content Security Policy `script-src` directive.
+- Scoped GitHub Actions workflows to least privilege: `ci.yml` now declares read-only permissions, release workflows grant write access only to jobs that publish, all actions are pinned to commit SHAs, and jobs run with concurrency groups and timeouts.
+
+### Changed
+- Enforced TypeScript strict mode for the Vite config type-check and added a Node `>=22` engine requirement.
+
 ## [0.2.1] - 2026-07-11
 
 ### Added

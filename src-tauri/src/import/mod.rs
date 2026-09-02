@@ -481,7 +481,17 @@ fn media_sample(root: &Value, media: &Value) -> Option<Value> {
         })
 }
 
+const SAMPLE_SCHEMA_MAX_DEPTH: usize = 32;
+
 fn sample_from_schema(root: &Value, schema: &Value) -> Value {
+    sample_from_schema_at_depth(root, schema, 0)
+}
+
+fn sample_from_schema_at_depth(root: &Value, schema: &Value, depth: usize) -> Value {
+    if depth >= SAMPLE_SCHEMA_MAX_DEPTH {
+        return Value::Null;
+    }
+    let next_depth = depth + 1;
     let schema = resolve_ref(root, schema);
     if let Some(example) = schema.get("example").or_else(|| schema.get("default")) {
         return example.clone();
@@ -494,7 +504,7 @@ fn sample_from_schema(root: &Value, schema: &Value) -> Value {
     if let Some(all_of) = schema.get("allOf").and_then(Value::as_array) {
         let mut merged = Map::new();
         for part in all_of {
-            if let Value::Object(object) = sample_from_schema(root, part) {
+            if let Value::Object(object) = sample_from_schema_at_depth(root, part, next_depth) {
                 merged.extend(object);
             }
         }
@@ -506,7 +516,7 @@ fn sample_from_schema(root: &Value, schema: &Value) -> Value {
         .and_then(Value::as_array)
         .and_then(|items| items.first())
     {
-        return sample_from_schema(root, choice);
+        return sample_from_schema_at_depth(root, choice, next_depth);
     }
 
     let schema_type = schema.get("type").and_then(Value::as_str);
@@ -514,7 +524,10 @@ fn sample_from_schema(root: &Value, schema: &Value) -> Value {
         let mut object = Map::new();
         if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
             for (name, property_schema) in properties {
-                object.insert(name.clone(), sample_from_schema(root, property_schema));
+                object.insert(
+                    name.clone(),
+                    sample_from_schema_at_depth(root, property_schema, next_depth),
+                );
             }
         }
         return Value::Object(object);
@@ -522,7 +535,7 @@ fn sample_from_schema(root: &Value, schema: &Value) -> Value {
     if schema_type == Some("array") {
         let item = schema
             .get("items")
-            .map(|items| sample_from_schema(root, items))
+            .map(|items| sample_from_schema_at_depth(root, items, next_depth))
             .unwrap_or_else(|| Value::String(String::new()));
         return Value::Array(vec![item]);
     }
@@ -834,6 +847,27 @@ fn collect_items(item: &PostmanItem, requests: &mut Vec<ImportedRequest>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sample_from_schema_recursive_ref_terminates() {
+        let root: Value = serde_json::from_str(
+            r##"{
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "children": {
+                        "type": "array",
+                        "items": {"$ref": "#"}
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        let sample = sample_from_schema(&root, &root);
+        assert!(sample.is_object());
+        assert_eq!(sample["name"], serde_json::json!(""));
+        assert!(sample["children"].is_array());
+    }
 
     #[test]
     fn test_import_postman_collection() {

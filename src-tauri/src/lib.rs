@@ -25,7 +25,7 @@ pub struct AppState {
     pub ws_manager: websocket::WsManager,
     pub sse_manager: sse::SseManager,
     pub mock_manager: mock::MockManager,
-    pub sync_manager: sync::SyncManager,
+    pub sync_manager: std::sync::Arc<sync::SyncManager>,
     pub plugin_manager: plugins::PluginManager,
     pub team_manager: team::TeamManager,
 }
@@ -42,7 +42,7 @@ pub fn run() {
             ws_manager: websocket::create_ws_manager(),
             sse_manager: sse::create_sse_manager(),
             mock_manager: mock::create_mock_manager(),
-            sync_manager: sync::SyncManager::new(),
+            sync_manager: std::sync::Arc::new(sync::SyncManager::new()),
             plugin_manager: plugins::PluginManager::new(),
             team_manager: team::TeamManager::new(),
         })

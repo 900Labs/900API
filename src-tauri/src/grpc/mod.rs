@@ -1,8 +1,12 @@
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use thiserror::Error;
+
+const GRPC_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_GRPC_RESPONSE_BYTES: usize = 50 * 1024 * 1024;
+const GRPC_STATUS_UNKNOWN: i32 = 2;
 
 #[derive(Debug, Error)]
 pub enum GrpcError {
@@ -71,7 +75,9 @@ pub async fn send_grpc_unary(
     }
 
     // Build client with HTTP/2 prior knowledge for plaintext, or normal for TLS
-    let client_builder = reqwest::Client::builder().danger_accept_invalid_certs(false);
+    let client_builder = reqwest::Client::builder()
+        .danger_accept_invalid_certs(false)
+        .timeout(GRPC_TIMEOUT);
 
     let client = if use_tls {
         client_builder
@@ -104,26 +110,44 @@ pub async fn send_grpc_unary(
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    // Get response body
-    let body_bytes = response
-        .bytes()
-        .await
-        .map_err(|e| GrpcError::Http(e.to_string()))?;
+    let content_length = response.content_length();
+    if let Some(length) = content_length {
+        if length as usize > MAX_GRPC_RESPONSE_BYTES {
+            return Err(GrpcError::Http(format!(
+                "gRPC response body too large: {length} bytes (limit {MAX_GRPC_RESPONSE_BYTES})"
+            )));
+        }
+    }
+
+    // Get response body with a hard cap
+    let body_bytes = read_body_capped(response, content_length).await?;
 
     // Parse gRPC framing: [compressed(1)] [length(4 BE)] [message]
+    // An empty body is the norm for unary error responses, where the real
+    // status lives in the HTTP/2 trailers (not exposed by reqwest), so it
+    // must never be reported as a successful call.
     let (grpc_status, grpc_message, message_bytes) = if body_bytes.len() >= 5 {
-        let _compressed = body_bytes[0];
         let len = u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]])
             as usize;
 
         if body_bytes.len() >= 5 + len {
-            let msg = &body_bytes[5..5 + len];
-            (0, String::new(), msg.to_vec())
+            (0, String::new(), body_bytes[5..5 + len].to_vec())
         } else {
             (0, String::new(), body_bytes.to_vec())
         }
+    } else if status == 200 {
+        (
+            GRPC_STATUS_UNKNOWN,
+            "gRPC status unavailable: response body empty or malformed (trailers not readable)"
+                .to_string(),
+            body_bytes.to_vec(),
+        )
     } else {
-        (0, String::new(), body_bytes.to_vec())
+        (
+            grpc_status_for_http_status(status),
+            format!("HTTP {status}: gRPC call failed without a grpc-status"),
+            body_bytes.to_vec(),
+        )
     };
 
     Ok(GrpcResponse {
@@ -136,6 +160,39 @@ pub async fn send_grpc_unary(
         headers: resp_headers,
         trailers: HashMap::new(),
     })
+}
+
+async fn read_body_capped(
+    response: reqwest::Response,
+    content_length: Option<u64>,
+) -> Result<Vec<u8>, GrpcError> {
+    let mut body = Vec::new();
+    let mut stream = response;
+    while let Some(chunk) = stream
+        .chunk()
+        .await
+        .map_err(|e| GrpcError::Http(e.to_string()))?
+    {
+        if body.len() + chunk.len() > MAX_GRPC_RESPONSE_BYTES {
+            return Err(GrpcError::Http(format!(
+                "gRPC response body too large: exceeds {MAX_GRPC_RESPONSE_BYTES} byte limit"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let _ = content_length;
+    Ok(body)
+}
+
+fn grpc_status_for_http_status(status: u16) -> i32 {
+    match status {
+        400 => 13,                   // INTERNAL
+        401 => 16,                   // UNAUTHENTICATED
+        403 => 7,                    // PERMISSION_DENIED
+        404 => 12,                   // UNIMPLEMENTED
+        429 | 502 | 503 | 504 => 14, // UNAVAILABLE
+        _ => GRPC_STATUS_UNKNOWN,
+    }
 }
 
 fn decode_hex(hex: &str) -> Result<Vec<u8>, GrpcError> {

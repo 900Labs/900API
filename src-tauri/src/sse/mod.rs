@@ -52,9 +52,18 @@ struct SseDecoder {
 }
 
 impl SseDecoder {
-    fn push(&mut self, chunk: &[u8]) -> Vec<DecodedSseEvent> {
+    const MAX_BUFFER_BYTES: usize = 1024 * 1024;
+
+    fn push(&mut self, chunk: &[u8]) -> Result<Vec<DecodedSseEvent>, SseError> {
+        if self.buffer.len() + chunk.len() > Self::MAX_BUFFER_BYTES {
+            return Err(SseError::Sse(format!(
+                "SSE stream sent {} bytes without a line break (limit {} bytes)",
+                self.buffer.len() + chunk.len(),
+                Self::MAX_BUFFER_BYTES
+            )));
+        }
         self.buffer.extend_from_slice(chunk);
-        self.drain_lines(false)
+        Ok(self.drain_lines(false))
     }
 
     fn finish(&mut self) -> Vec<DecodedSseEvent> {
@@ -194,23 +203,31 @@ pub async fn connect_sse(
 
     for h in &headers {
         if h.enabled && !h.key.is_empty() {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::from_bytes(h.key.as_bytes()),
-                reqwest::header::HeaderValue::from_str(&h.value),
-            ) {
-                header_map.append(name, value);
-            }
+            let name =
+                reqwest::header::HeaderName::from_bytes(h.key.as_bytes()).map_err(|error| {
+                    SseError::Sse(format!("Invalid header name '{}': {}", h.key, error))
+                })?;
+            let value = reqwest::header::HeaderValue::from_str(&h.value).map_err(|error| {
+                SseError::Sse(format!("Invalid header value for '{}': {}", h.key, error))
+            })?;
+            header_map.append(name, value);
         }
     }
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(false)
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| SseError::Sse(e.to_string()))?;
 
-    let response = match client.get(&url).headers(header_map).send().await {
-        Ok(r) => r,
-        Err(e) => {
+    let response = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client.get(&url).headers(header_map).send(),
+    )
+    .await
+    {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
             let _ = app.emit(
                 &format!("sse-{}-state", id),
                 SseConnectionState {
@@ -222,6 +239,20 @@ pub async fn connect_sse(
                 },
             );
             return Err(SseError::Sse(e.to_string()));
+        }
+        Err(_) => {
+            let message = "SSE connection timed out after 30 seconds".to_string();
+            let _ = app.emit(
+                &format!("sse-{}-state", id),
+                SseConnectionState {
+                    id: id.clone(),
+                    url: url.clone(),
+                    status: "error".to_string(),
+                    error: Some(message.clone()),
+                    event_count: 0,
+                },
+            );
+            return Err(SseError::Sse(message));
         }
     };
 
@@ -243,9 +274,12 @@ pub async fn connect_sse(
     // Create cancellation channel
     let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
-    // Store connection
+    // Store connection, re-checking for a concurrent connect with the same id
     {
         let mut connections = manager.lock().unwrap_or_else(|e| e.into_inner());
+        if connections.contains_key(&id) {
+            return Err(SseError::AlreadyExists(id));
+        }
         connections.insert(
             id.clone(),
             SseConnection {
@@ -294,7 +328,14 @@ pub async fn connect_sse(
                 while let Some(chunk_result) = stream.next().await {
                     match chunk_result {
                         Ok(chunk) => {
-                            for decoded in decoder.push(&chunk) {
+                            let decoded_events = match decoder.push(&chunk) {
+                                Ok(events) => events,
+                                Err(e) => {
+                                    stream_error = Some(e.to_string());
+                                    break;
+                                }
+                            };
+                            for decoded in decoded_events {
                                 emit_decoded_event(
                                     &app_clone,
                                     &manager_clone,
@@ -405,7 +446,7 @@ mod tests {
         ];
         let mut events = Vec::new();
         for chunk in chunks {
-            events.extend(decoder.push(chunk));
+            events.extend(decoder.push(chunk).unwrap());
         }
 
         assert_eq!(events.len(), 1);
@@ -417,7 +458,7 @@ mod tests {
     #[test]
     fn decoder_emits_multiple_events_with_lf_and_cr_boundaries() {
         let mut decoder = SseDecoder::default();
-        let mut events = decoder.push(b"data: one\n\ndata: two\r\rnext:");
+        let mut events = decoder.push(b"data: one\n\ndata: two\r\rnext:").unwrap();
         events.extend(decoder.finish());
 
         assert_eq!(events.len(), 2);
@@ -428,8 +469,8 @@ mod tests {
     #[test]
     fn decoder_preserves_utf8_for_terminated_final_event() {
         let mut decoder = SseDecoder::default();
-        assert!(decoder.push(b"data: caf\xc3").is_empty());
-        let events = decoder.push(b"\xa9\n\n");
+        assert!(decoder.push(b"data: caf\xc3").unwrap().is_empty());
+        let events = decoder.push(b"\xa9\n\n").unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].data, "caf\u{e9}");
@@ -439,7 +480,7 @@ mod tests {
     #[test]
     fn decoder_emits_final_event_terminated_by_trailing_cr_blank_line() {
         let mut decoder = SseDecoder::default();
-        assert!(decoder.push(b"data: final\r\r").is_empty());
+        assert!(decoder.push(b"data: final\r\r").unwrap().is_empty());
 
         let events = decoder.finish();
         assert_eq!(events.len(), 1);
@@ -449,10 +490,22 @@ mod tests {
     #[test]
     fn decoder_discards_unterminated_final_event() {
         let mut decoder = SseDecoder::default();
-        assert!(decoder.push(b"data: incomplete\n").is_empty());
+        assert!(decoder.push(b"data: incomplete\n").unwrap().is_empty());
         assert!(decoder.finish().is_empty());
 
-        assert!(decoder.push(b"data: also incomplete").is_empty());
+        assert!(decoder.push(b"data: also incomplete").unwrap().is_empty());
         assert!(decoder.finish().is_empty());
+    }
+
+    #[test]
+    fn decoder_rejects_oversized_unterminated_line() {
+        let mut decoder = SseDecoder::default();
+        let oversized = vec![b'x'; SseDecoder::MAX_BUFFER_BYTES + 1];
+        let result = decoder.push(&oversized);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("without a line break"));
     }
 }

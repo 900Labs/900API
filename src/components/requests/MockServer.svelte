@@ -82,18 +82,50 @@
     }
   }
 
+  let pollTimeout: ReturnType<typeof setTimeout> | null = null
+  let pollingActive = false
+
+  function schedulePoll() {
+    if (pollTimeout !== null) clearTimeout(pollTimeout)
+    pollTimeout = setTimeout(pollState, 2000)
+  }
+
   async function pollState() {
-    if (!running) return
+    if (!running || !pollingActive) return
     try {
       const state = await invoke<MockServerState>('mock_get_state', { port })
+      if (!pollingActive) return
       requestCount = state.request_count
       runningBindHost = state.bind_host
       allowCors = state.cors_permissive
-      setTimeout(pollState, 2000)
+      schedulePoll()
     } catch {
       running = false
     }
   }
+
+  $effect(() => {
+    const currentPort = port
+    pollingActive = true
+    void (async () => {
+      try {
+        const state = await invoke<MockServerState>('mock_get_state', { port: currentPort })
+        if (!pollingActive) return
+        running = state.running
+        requestCount = state.request_count
+        runningBindHost = state.bind_host
+        allowCors = state.cors_permissive
+        if (state.running) schedulePoll()
+      } catch {
+        if (pollingActive) running = false
+      }
+    })()
+    return () => {
+      pollingActive = false
+      if (pollTimeout !== null) clearTimeout(pollTimeout)
+      pollTimeout = null
+    }
+  })
 
   function addRoute() {
     const newRoute: MockRoute = {

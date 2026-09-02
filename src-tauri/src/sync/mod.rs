@@ -224,9 +224,10 @@ impl SyncManager {
                 .output();
         }
 
-        // Add all
+        // Stage only the JSON files this app exports, so unrelated files
+        // dropped into the sync directory are never committed
         let add_output = std::process::Command::new("git")
-            .args(["add", "-A"])
+            .args(["add", "--", "*.json"])
             .current_dir(&dir)
             .output()
             .map_err(|e| SyncError::Git(e.to_string()))?;
