@@ -359,48 +359,62 @@ pub fn update_environment(
 }
 
 #[tauri::command]
-pub fn export_collection(
+pub async fn export_collection(
     state: tauri::State<'_, AppState>,
     collection_id: String,
     path: String,
 ) -> Result<(), String> {
-    with_db(&state, |db| {
+    let target = validate_user_file_path(&path)?;
+    let json = with_db(&state, |db| {
         let portable = portable_collection(db, &collection_id)?;
-        let json = api900_core::format::to_pretty_json(&portable)
-            .map_err(|error| crate::db::DbError::NotFound(error.to_string()))?;
-        std::fs::write(std::path::Path::new(&path), json)
-            .map_err(|error| crate::db::DbError::NotFound(error.to_string()))
+        api900_core::format::to_pretty_json(&portable)
+            .map_err(|error| crate::db::DbError::Serialization(error.to_string()))
+    })?;
+    tokio::task::spawn_blocking(move || {
+        std::fs::write(&target, json).map_err(|error| crate::db::DbError::Io(error.to_string()))
     })
+    .await
+    .map_err(|error| format!("Export task failed: {error}"))?
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn export_openapi(
+pub async fn export_openapi(
     state: tauri::State<'_, AppState>,
     collection_id: String,
     path: String,
 ) -> Result<(), String> {
-    with_db(&state, |db| {
+    let target = validate_user_file_path(&path)?;
+    let (collection, requests) = with_db(&state, |db| {
         let collections = db.list_collections()?;
         let collection = collections
             .into_iter()
             .find(|c| c.id == collection_id)
             .ok_or_else(|| crate::db::DbError::NotFound(format!("Collection {}", collection_id)))?;
-        let requests = db.list_requests(&collection_id)?;
-        export::export_openapi_collection(&collection, &requests, std::path::Path::new(&path))
-            .map_err(|e| crate::db::DbError::NotFound(e.to_string()))
+        let requests = db.list_requests(&collection.id)?;
+        Ok((collection, requests))
+    })?;
+    tokio::task::spawn_blocking(move || {
+        export::export_openapi_collection(&collection, &requests, &target)
+            .map_err(|error| crate::db::DbError::Io(error.to_string()))
     })
+    .await
+    .map_err(|error| format!("Export task failed: {error}"))?
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn import_collection_file(
+pub async fn import_collection_file(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<Collection, String> {
-    with_db(&state, |db| {
-        let imported = export::import_collection(std::path::Path::new(&path))
-            .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
-        db.import_collection_file(&imported)
+    let source = validate_user_file_path(&path)?;
+    let imported = tokio::task::spawn_blocking(move || {
+        export::import_collection(&source).map_err(|error| error.to_string())
     })
+    .await
+    .map_err(|error| format!("Import task failed: {error}"))??;
+    with_db(&state, |db| db.import_collection_file(&imported))
 }
 
 #[tauri::command]
@@ -566,33 +580,53 @@ pub fn sync_list_collections(state: tauri::State<'_, AppState>) -> Result<Vec<St
 }
 
 #[tauri::command]
-pub fn sync_git_init(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.sync_manager.git_init().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn sync_git_status(
-    state: tauri::State<'_, AppState>,
-) -> Result<crate::sync::GitStatus, String> {
-    state.sync_manager.git_status().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn sync_git_commit(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
-    state
-        .sync_manager
-        .git_commit(&message)
+pub async fn sync_git_init(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let manager = state.sync_manager.clone();
+    tokio::task::spawn_blocking(move || manager.git_init())
+        .await
+        .map_err(|error| format!("Git task failed: {error}"))?
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_git_pull(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.sync_manager.git_pull().map_err(|e| e.to_string())
+pub async fn sync_git_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::sync::GitStatus, String> {
+    let manager = state.sync_manager.clone();
+    tokio::task::spawn_blocking(move || manager.git_status())
+        .await
+        .map_err(|error| format!("Git task failed: {error}"))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn sync_git_push(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.sync_manager.git_push().map_err(|e| e.to_string())
+pub async fn sync_git_commit(
+    state: tauri::State<'_, AppState>,
+    message: String,
+) -> Result<(), String> {
+    let manager = state.sync_manager.clone();
+    tokio::task::spawn_blocking(move || manager.git_commit(&message))
+        .await
+        .map_err(|error| format!("Git task failed: {error}"))?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sync_git_pull(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let manager = state.sync_manager.clone();
+    tokio::task::spawn_blocking(move || manager.git_pull())
+        .await
+        .map_err(|error| format!("Git task failed: {error}"))?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sync_git_push(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let manager = state.sync_manager.clone();
+    tokio::task::spawn_blocking(move || manager.git_push())
+        .await
+        .map_err(|error| format!("Git task failed: {error}"))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -643,8 +677,12 @@ pub fn docs_to_html(doc: crate::docs::ApiDoc) -> String {
 }
 
 #[tauri::command]
-pub fn write_text_file(path: String, content: String) -> Result<(), String> {
-    let target = std::path::Path::new(&path);
+pub fn validate_user_file_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let target = std::path::Path::new(path);
+
+    if !target.is_absolute() {
+        return Err("Path must be absolute".to_string());
+    }
 
     if target
         .components()
@@ -680,11 +718,20 @@ pub fn write_text_file(path: String, content: String) -> Result<(), String> {
 
     if let Ok(metadata) = std::fs::symlink_metadata(&safe_target) {
         if metadata.file_type().is_symlink() {
-            return Err("Refusing to write through a symbolic link".to_string());
+            return Err("Refusing to access a symbolic link path".to_string());
         }
     }
 
-    std::fs::write(&safe_target, content).map_err(|e| e.to_string())
+    Ok(safe_target)
+}
+
+#[tauri::command]
+pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    let target = validate_user_file_path(&path)?;
+    tokio::task::spawn_blocking(move || std::fs::write(&target, content))
+        .await
+        .map_err(|error| format!("Write task failed: {error}"))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -851,69 +898,35 @@ pub fn team_unshare_collection(
 }
 
 #[tauri::command]
-pub fn import_postman(
+pub async fn import_postman(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<Collection, String> {
+    let source = validate_user_file_path(&path)?;
+    let (name, description, requests) = tokio::task::spawn_blocking(move || {
+        import::import_postman_collection(&source).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Import task failed: {error}"))??;
+
     with_db(&state, |db| {
-        let (name, description, requests) =
-            import::import_postman_collection(std::path::Path::new(&path))
-                .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
-
-        let collection = db.create_collection(&name, description.as_deref())?;
-
-        for req in &requests {
-            db.create_request_with_settings(
-                &collection.id,
-                &req.name,
-                &req.method,
-                &req.url,
-                &req.headers,
-                &req.params,
-                &req.body_type,
-                &req.body,
-                &req.auth_type,
-                &req.auth_config,
-                "",
-                "",
-                "{}",
-            )?;
-        }
-
-        Ok(collection)
+        db.import_requests_collection(&name, description.as_deref(), &requests)
     })
 }
 
 #[tauri::command]
-pub fn import_openapi(
+pub async fn import_openapi(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<Collection, String> {
+    let source = validate_user_file_path(&path)?;
+    let (name, description, requests) = tokio::task::spawn_blocking(move || {
+        import::import_openapi_collection(&source).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Import task failed: {error}"))??;
+
     with_db(&state, |db| {
-        let (name, description, requests) =
-            import::import_openapi_collection(std::path::Path::new(&path))
-                .map_err(|e| crate::db::DbError::NotFound(e.to_string()))?;
-
-        let collection = db.create_collection(&name, description.as_deref())?;
-
-        for req in &requests {
-            db.create_request_with_settings(
-                &collection.id,
-                &req.name,
-                &req.method,
-                &req.url,
-                &req.headers,
-                &req.params,
-                &req.body_type,
-                &req.body,
-                &req.auth_type,
-                &req.auth_config,
-                "",
-                "",
-                "{}",
-            )?;
-        }
-
-        Ok(collection)
+        db.import_requests_collection(&name, description.as_deref(), &requests)
     })
 }

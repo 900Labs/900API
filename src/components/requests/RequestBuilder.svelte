@@ -881,7 +881,7 @@
 
   function copyResponse() {
     if (!response) return
-    navigator.clipboard.writeText(response.body)
+    navigator.clipboard.writeText(response.body).catch((e) => console.error('[900api] clipboard write failed:', e))
     responseActionMessage = 'Response body copied.'
   }
 
@@ -1347,7 +1347,7 @@
   }
 
   function copyGeneratedCode() {
-    navigator.clipboard.writeText(generatedCode())
+    navigator.clipboard.writeText(generatedCode()).catch((e) => console.error('[900api] clipboard write failed:', e))
   }
 
   function openCodeDialog() {
@@ -1356,7 +1356,7 @@
   }
 
   function copyCurl() {
-    navigator.clipboard.writeText(buildCurlCommand())
+    navigator.clipboard.writeText(buildCurlCommand()).catch((e) => console.error('[900api] clipboard write failed:', e))
   }
 
   function draftFromRequestConfig(config: RequestConfig, name: string, dirty = true): RequestDraft {
@@ -1970,7 +1970,7 @@
   {#if envSuggestions.length > 0}
     <div class="flex flex-wrap items-center gap-1 border-b border-border px-3 py-2">
       {#each envSuggestions.slice(0, 8) as suggestion (suggestion)}
-        <button class="rounded border border-border bg-surface px-2 py-1 font-mono text-xs text-text-muted hover:bg-surface-hover hover:text-text" onclick={() => navigator.clipboard.writeText(suggestion)}>
+        <button class="rounded border border-border bg-surface px-2 py-1 font-mono text-xs text-text-muted hover:bg-surface-hover hover:text-text" onclick={() => navigator.clipboard.writeText(suggestion).catch((e) => console.error('[900api] clipboard write failed:', e))}>
           {suggestion}
         </button>
       {/each}

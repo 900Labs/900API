@@ -8,6 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
 use thiserror::Error;
@@ -54,7 +55,7 @@ pub struct MockServerState {
 
 pub struct MockServer {
     pub config: MockServerConfig,
-    pub request_count: Arc<RwLock<u64>>,
+    pub request_count: Arc<AtomicU64>,
     pub shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -67,7 +68,7 @@ pub fn create_mock_manager() -> MockManager {
 #[derive(Clone)]
 struct AppState {
     routes: Arc<RwLock<Vec<MockRoute>>>,
-    request_count: Arc<RwLock<u64>>,
+    request_count: Arc<AtomicU64>,
 }
 
 pub async fn start_mock_server(
@@ -89,7 +90,7 @@ pub async fn start_mock_server(
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let routes = Arc::new(RwLock::new(config.routes.clone()));
-    let request_count = Arc::new(RwLock::new(0u64));
+    let request_count = Arc::new(AtomicU64::new(0));
 
     let state = AppState {
         routes: routes.clone(),
@@ -161,10 +162,7 @@ pub fn get_mock_server_state(
 ) -> Result<MockServerState, MockError> {
     let servers = manager.read().unwrap_or_else(|e| e.into_inner());
     let server = servers.get(&port).ok_or(MockError::NotRunning(port))?;
-    let request_count = *server
-        .request_count
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let request_count = server.request_count.load(Ordering::Relaxed);
     let bind_host = server
         .config
         .bind_host
@@ -188,13 +186,7 @@ pub fn list_mock_servers(manager: &MockManager) -> Vec<u16> {
 
 async fn handle_request_inner(state: AppState, request: Request) -> Response {
     // Increment request count
-    {
-        let mut count = state
-            .request_count
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        *count += 1;
-    }
+    state.request_count.fetch_add(1, Ordering::Relaxed);
 
     let method = request.method().clone();
     let path = request.uri().path().to_string();

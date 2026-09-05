@@ -32,17 +32,29 @@
   let gitOutput = $state<string | null>(null)
 
   async function loadConfig() {
-    config = await invoke<SyncConfig | null>('sync_get_config')
-    localCollections = await invoke<LocalCollection[]>('list_collections')
-    if (config?.directory) await refreshStatus()
+    try {
+      config = await invoke<SyncConfig | null>('sync_get_config')
+      localCollections = await invoke<LocalCollection[]>('list_collections')
+      if (config?.directory) await refreshStatus()
+    } catch (e) {
+      error = String(e)
+    }
   }
 
   async function saveConfig() {
     if (!config) return
-    await invoke('sync_set_config', { config })
-    await refreshStatus()
-    success = 'Sync directory configured'
-    setTimeout(() => (success = null), 3000)
+    loading = true
+    error = null
+    try {
+      await invoke('sync_set_config', { config })
+      await refreshStatus()
+      success = 'Sync directory configured'
+      setTimeout(() => (success = null), 3000)
+    } catch (e) {
+      error = String(e)
+    } finally {
+      loading = false
+    }
   }
 
   async function pickDirectory() {

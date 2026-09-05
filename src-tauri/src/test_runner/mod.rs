@@ -261,23 +261,29 @@ pub async fn run_test_suites(
 
 fn evaluate_assertion(assertion: &Assertion, response: &ResponseData) -> AssertionResult {
     let actual = get_assertion_value(assertion, response);
-    let passed = check_assertion(assertion, &actual);
+    let outcome = check_assertion(assertion, &actual);
 
-    let message = if passed {
-        format!(
-            "Expected {} {} {}",
-            assertion.target,
-            format_operator(&assertion.operator),
-            assertion.expected
-        )
-    } else {
-        format!(
-            "Expected {} {} '{}' but got '{}'",
-            assertion.target,
-            format_operator(&assertion.operator),
-            assertion.expected,
-            actual
-        )
+    let (passed, message) = match outcome {
+        Ok(true) => (
+            true,
+            format!(
+                "Expected {} {} {}",
+                assertion.target,
+                format_operator(&assertion.operator),
+                assertion.expected
+            ),
+        ),
+        Ok(false) => (
+            false,
+            format!(
+                "Expected {} {} '{}' but got '{}'",
+                assertion.target,
+                format_operator(&assertion.operator),
+                assertion.expected,
+                actual
+            ),
+        ),
+        Err(reason) => (false, reason),
     };
 
     AssertionResult {
@@ -338,24 +344,52 @@ fn extract_json_path(value: &serde_json::Value, path: &str) -> String {
     }
 }
 
-fn check_assertion(assertion: &Assertion, actual: &str) -> bool {
+fn check_assertion(assertion: &Assertion, actual: &str) -> Result<bool, String> {
     match assertion.operator {
-        AssertionOperator::Equals => actual == assertion.expected,
-        AssertionOperator::NotEquals => actual != assertion.expected,
-        AssertionOperator::Contains => actual.contains(&assertion.expected),
-        AssertionOperator::NotContains => !actual.contains(&assertion.expected),
+        AssertionOperator::Equals => Ok(actual == assertion.expected),
+        AssertionOperator::NotEquals => Ok(actual != assertion.expected),
+        AssertionOperator::Contains => Ok(actual.contains(&assertion.expected)),
+        AssertionOperator::NotContains => Ok(!actual.contains(&assertion.expected)),
         AssertionOperator::GreaterThan => {
-            let actual_num: f64 = actual.parse().unwrap_or(0.0);
-            let expected_num: f64 = assertion.expected.parse().unwrap_or(0.0);
-            actual_num > expected_num
+            let actual_num: f64 = actual.trim().parse().map_err(|_| {
+                format!(
+                    "Cannot compare: '{}' is not a number",
+                    if actual.len() > 50 {
+                        format!("{}...", &actual[..50])
+                    } else {
+                        actual.to_string()
+                    }
+                )
+            })?;
+            let expected_num: f64 = assertion.expected.parse().map_err(|_| {
+                format!(
+                    "Cannot compare: expected value '{}' is not a number",
+                    assertion.expected
+                )
+            })?;
+            Ok(actual_num > expected_num)
         }
         AssertionOperator::LessThan => {
-            let actual_num: f64 = actual.parse().unwrap_or(0.0);
-            let expected_num: f64 = assertion.expected.parse().unwrap_or(0.0);
-            actual_num < expected_num
+            let actual_num: f64 = actual.trim().parse().map_err(|_| {
+                format!(
+                    "Cannot compare: '{}' is not a number",
+                    if actual.len() > 50 {
+                        format!("{}...", &actual[..50])
+                    } else {
+                        actual.to_string()
+                    }
+                )
+            })?;
+            let expected_num: f64 = assertion.expected.parse().map_err(|_| {
+                format!(
+                    "Cannot compare: expected value '{}' is not a number",
+                    assertion.expected
+                )
+            })?;
+            Ok(actual_num < expected_num)
         }
-        AssertionOperator::Exists => !actual.is_empty(),
-        AssertionOperator::NotExists => actual.is_empty(),
+        AssertionOperator::Exists => Ok(!actual.is_empty()),
+        AssertionOperator::NotExists => Ok(actual.is_empty()),
     }
 }
 
@@ -417,8 +451,8 @@ mod tests {
             operator: AssertionOperator::Equals,
             expected: "200".to_string(),
         };
-        assert!(check_assertion(&assertion, "200"));
-        assert!(!check_assertion(&assertion, "404"));
+        assert!(check_assertion(&assertion, "200").unwrap());
+        assert!(!check_assertion(&assertion, "404").unwrap());
     }
 
     #[test]
@@ -430,8 +464,8 @@ mod tests {
             operator: AssertionOperator::Contains,
             expected: "hello".to_string(),
         };
-        assert!(check_assertion(&assertion, "hello world"));
-        assert!(!check_assertion(&assertion, "goodbye"));
+        assert!(check_assertion(&assertion, "hello world").unwrap());
+        assert!(!check_assertion(&assertion, "goodbye").unwrap());
     }
 
     #[test]
@@ -443,8 +477,9 @@ mod tests {
             operator: AssertionOperator::GreaterThan,
             expected: "100".to_string(),
         };
-        assert!(check_assertion(&assertion, "200"));
-        assert!(!check_assertion(&assertion, "50"));
+        assert!(check_assertion(&assertion, "200").unwrap());
+        assert!(!check_assertion(&assertion, "50").unwrap());
+        assert!(check_assertion(&assertion, "not-a-number").is_err());
     }
 
     #[test]
@@ -456,8 +491,8 @@ mod tests {
             operator: AssertionOperator::Exists,
             expected: "".to_string(),
         };
-        assert!(check_assertion(&assertion, "some-value"));
-        assert!(!check_assertion(&assertion, ""));
+        assert!(check_assertion(&assertion, "some-value").unwrap());
+        assert!(!check_assertion(&assertion, "").unwrap());
     }
 
     #[test]

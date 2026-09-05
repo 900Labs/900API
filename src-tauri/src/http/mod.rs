@@ -246,7 +246,8 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
     // Apply auth
     let method_str = format!("{:?}", config.method);
     let body_bytes = config.body.as_bytes();
-    request = crate::auth::apply_auth(request, &config.auth, url.as_str(), &method_str, body_bytes);
+    request = crate::auth::apply_auth(request, &config.auth, url.as_str(), &method_str, body_bytes)
+        .map_err(|error| HttpError::RequestFailed(error.to_string()))?;
 
     // Apply body
     request = match &config.body_type {
@@ -301,7 +302,7 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    let body = response.text().await?;
+    let body = read_body_capped(response).await?;
     let size_bytes = body.len();
 
     Ok(ResponseData {
@@ -312,6 +313,29 @@ pub async fn send_request(config: &RequestConfig) -> Result<ResponseData, HttpEr
         time_ms: elapsed.as_millis() as u64,
         size_bytes,
     })
+}
+
+const MAX_RESPONSE_BYTES: usize = 50 * 1024 * 1024;
+
+async fn read_body_capped(response: reqwest::Response) -> Result<String, HttpError> {
+    if let Some(length) = response.content_length() {
+        if length as usize > MAX_RESPONSE_BYTES {
+            return Err(HttpError::RequestFailed(format!(
+                "Response body too large: {length} bytes (limit {MAX_RESPONSE_BYTES} bytes)"
+            )));
+        }
+    }
+    let mut body = Vec::new();
+    let mut response = response;
+    while let Some(chunk) = response.chunk().await? {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(HttpError::RequestFailed(format!(
+                "Response body too large: exceeds the {MAX_RESPONSE_BYTES} byte limit"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 fn parse_form_fields(body: &str, label: &str) -> Result<Vec<KeyValue>, HttpError> {
@@ -364,18 +388,31 @@ pub async fn send_graphql(
     let resolved_headers = variables::resolve_key_values(headers, env_vars);
     for header in &resolved_headers {
         if header.enabled && !header.key.is_empty() {
-            if let Ok(name) = reqwest::header::HeaderName::from_bytes(header.key.as_bytes()) {
-                if let Ok(value) = reqwest::header::HeaderValue::from_str(&header.value) {
-                    header_map.append(name, value);
-                }
-            }
+            let name = reqwest::header::HeaderName::from_bytes(header.key.as_bytes()).map_err(
+                |error| {
+                    HttpError::RequestFailed(format!(
+                        "Invalid header name '{}': {}",
+                        header.key, error
+                    ))
+                },
+            )?;
+            let value = reqwest::header::HeaderValue::from_str(&header.value).map_err(|error| {
+                HttpError::RequestFailed(format!(
+                    "Invalid header value for '{}': {}",
+                    header.key, error
+                ))
+            })?;
+            header_map.append(name, value);
         }
     }
     request = request.headers(header_map);
 
     // Apply auth
-    let payload_str = serde_json::to_string(&payload).unwrap_or_default();
-    request = crate::auth::apply_auth(request, auth, &resolved_url, "POST", payload_str.as_bytes());
+    let payload_str = serde_json::to_string(&payload).map_err(|error| {
+        HttpError::RequestFailed(format!("Failed to serialize GraphQL payload: {error}"))
+    })?;
+    request = crate::auth::apply_auth(request, auth, &resolved_url, "POST", payload_str.as_bytes())
+        .map_err(|error| HttpError::RequestFailed(error.to_string()))?;
 
     let start = Instant::now();
     let response = request.send().await?;
@@ -394,7 +431,7 @@ pub async fn send_graphql(
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    let body = response.text().await?;
+    let body = read_body_capped(response).await?;
     let size_bytes = body.len();
 
     Ok(ResponseData {

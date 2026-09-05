@@ -53,27 +53,37 @@
 
   async function exportMarkdown() {
     if (docs.length === 0) return
-    const doc = docs[selectedDocIndex]
-    const markdown = await invoke<string>('docs_to_markdown', { doc })
-    const filePath = await save({
-      defaultPath: `${doc.collection_name.replace(/\s+/g, '_')}_api.md`,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-    })
-    if (filePath) {
-      await invoke('write_text_file', { path: filePath, content: markdown })
+    error = null
+    try {
+      const doc = docs[selectedDocIndex]
+      const markdown = await invoke<string>('docs_to_markdown', { doc })
+      const filePath = await save({
+        defaultPath: `${doc.collection_name.replace(/\s+/g, '_')}_api.md`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      })
+      if (filePath) {
+        await invoke('write_text_file', { path: filePath, content: markdown })
+      }
+    } catch (e) {
+      error = String(e)
     }
   }
 
   async function exportHtml() {
     if (docs.length === 0) return
-    const doc = docs[selectedDocIndex]
-    const html = await invoke<string>('docs_to_html', { doc })
-    const filePath = await save({
-      defaultPath: `${doc.collection_name.replace(/\s+/g, '_')}_api.html`,
-      filters: [{ name: 'HTML', extensions: ['html'] }],
-    })
-    if (filePath) {
-      await invoke('write_text_file', { path: filePath, content: html })
+    error = null
+    try {
+      const doc = docs[selectedDocIndex]
+      const html = await invoke<string>('docs_to_html', { doc })
+      const filePath = await save({
+        defaultPath: `${doc.collection_name.replace(/\s+/g, '_')}_api.html`,
+        filters: [{ name: 'HTML', extensions: ['html'] }],
+      })
+      if (filePath) {
+        await invoke('write_text_file', { path: filePath, content: html })
+      }
+    } catch (e) {
+      error = String(e)
     }
   }
 

@@ -192,6 +192,16 @@
     }
   }
 
+  async function unshareCollection(collectionId: string) {
+    if (!selectedWorkspaceId) return
+    try {
+      await invoke('team_unshare_collection', { workspaceId: selectedWorkspaceId, collectionId })
+      await loadWorkspaces()
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
   let selectedWorkspace = $derived(workspaces.find((w) => w.id === selectedWorkspaceId))
 
   function selectWorkspace(id: string) {
@@ -419,7 +429,7 @@
                     <div class="flex-1"></div>
                     <button
                       class="text-text-muted hover:text-error"
-                      onclick={() => invoke('team_unshare_collection', { workspaceId: selectedWorkspace.id, collectionId: colId }).then(() => loadWorkspaces())}
+                      onclick={() => unshareCollection(colId)}
                     >
                       <Trash2 class="h-3.5 w-3.5" />
                     </button>

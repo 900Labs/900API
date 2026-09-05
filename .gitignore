@@ -34,3 +34,7 @@ target/
 
 # Internal audit
 docs/FULL_AUDIT_REPORT.md
+
+# CI / local artifacts
+.privacy-gate-check-*
+release-assets/

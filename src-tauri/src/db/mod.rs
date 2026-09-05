@@ -12,6 +12,10 @@ pub enum DbError {
     Sqlite(#[from] rusqlite::Error),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("IO error: {0}")]
+    Io(String),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
 }
 
 pub struct Database {
@@ -283,9 +287,9 @@ impl Database {
                 request.sort_order
             };
             let headers = serde_json::to_string(&request.headers)
-                .map_err(|error| DbError::NotFound(error.to_string()))?;
+                .map_err(|error| DbError::Serialization(error.to_string()))?;
             let params_json = serde_json::to_string(&request.params)
-                .map_err(|error| DbError::NotFound(error.to_string()))?;
+                .map_err(|error| DbError::Serialization(error.to_string()))?;
             let auth_config = api900_core::format::value_to_json(&request.auth_config);
             let settings = api900_core::format::value_to_json(&request.settings);
 
@@ -675,6 +679,72 @@ impl Database {
             created_at: now.clone(),
             updated_at: now,
         })
+    }
+
+    pub fn import_requests_collection(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        requests: &[crate::import::ImportedRequest],
+    ) -> Result<crate::models::Collection, DbError> {
+        let transaction = self.conn.unchecked_transaction()?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let sort_order: i32 = transaction.query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM collections WHERE parent_id IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        transaction.execute(
+            "INSERT INTO collections (id, name, description, parent_id, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, name, description, Option::<String>::None, sort_order, now, now],
+        )?;
+        let collection = crate::models::Collection {
+            id,
+            name: name.to_string(),
+            description: description.map(|value| value.to_string()),
+            parent_id: None,
+            sort_order,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        for request in requests {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            let sort_order: i32 = transaction.query_row(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM requests WHERE collection_id = ?1",
+                params![collection.id],
+                |row| row.get(0),
+            )?;
+            transaction.execute(
+                "INSERT INTO requests (id, collection_id, name, method, url, headers, params, body_type, body, auth_type, auth_config, pre_request_script, test_script, settings, sort_order, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                params![
+                    request_id,
+                    collection.id,
+                    request.name,
+                    request.method,
+                    request.url,
+                    request.headers,
+                    request.params,
+                    request.body_type,
+                    request.body,
+                    request.auth_type,
+                    request.auth_config,
+                    "",
+                    "",
+                    "{}",
+                    sort_order,
+                    now,
+                    now
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+        Ok(collection)
     }
 
     #[allow(clippy::too_many_arguments)]
